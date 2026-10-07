@@ -176,30 +176,49 @@
         pointer-events: none;
         overflow: hidden;
       }
-      .overlay-layer { position: absolute; inset: 0; pointer-events: none; }
+      .overlay-layer {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+        overflow: visible;
+      }
       .lens[data-mode="reader"] .overlay-layer { display: none; }
       .blk {
         position: absolute;
-        border-radius: 4px;
-        padding: 3px 7px;
+        display: block;
+        border-radius: 6px;
+        padding: 3px 8px;
         line-height: 1.35;
         font-family: var(--ui-font);
-        background: rgba(10, 14, 26, 0.94);
+        background: rgba(10, 14, 26, 0.95);
         color: #f8fafc;
-        border: 1px solid rgba(121, 166, 255, 0.35);
-        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.6);
+        border: 1px solid rgba(121, 166, 255, 0.5);
+        box-shadow: 0 4px 14px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.08);
         pointer-events: auto;
         font-size: 13px;
-        word-break: break-word;
-        animation: pop-in 0.15s ease-out;
+        font-weight: 500;
+        white-space: nowrap;
+        width: max-content;
+        min-width: max-content;
+        max-width: none;
+        box-sizing: border-box;
         z-index: 5;
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+        animation: blk-appear 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      @keyframes blk-appear {
+        from { opacity: 0; transform: scale(0.96); }
+        to { opacity: 1; transform: scale(1); }
       }
       .blk:hover {
         background: rgba(15, 23, 42, 0.98);
-        border-color: rgba(121, 166, 255, 0.8);
-        z-index: 8;
+        border-color: rgba(121, 166, 255, 0.9);
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(121, 166, 255, 0.4);
+        transform: translateY(-1px);
+        z-index: 10;
       }
-      @keyframes pop-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
 
       .reader {
         position: absolute; inset: 0;
@@ -346,6 +365,197 @@
     scheduleScan(300);
   }
 
+  // ---- Arquitectura Espacial Tipo Lentes AR/VR (World-Locked Overlay) ----
+  const spatialCache = new Map(); // key -> { key, docX, docY, w, h, text, translatedText, fontSize, langKey, el, timestamp }
+  const MAX_SPATIAL_ITEMS = 500;
+
+  function getLangKey() {
+    return `${sourceLang}->${targetLang}`;
+  }
+
+  function getSpatialKey(docX, docY, text) {
+    const rx = Math.round(docX / 12) * 12;
+    const ry = Math.round(docY / 8) * 8;
+    return `${rx}_${ry}::${text.trim()}`;
+  }
+
+  function applyBlockStyle(blk, entry) {
+    blk.className = 'blk';
+    blk.textContent = entry.translatedText;
+    blk.style.fontSize = entry.fontSize || '13px';
+
+    const text = entry.translatedText || '';
+    const isParagraph = text.length > 70 || text.includes('\n');
+    if (isParagraph) {
+      blk.style.whiteSpace = 'normal';
+      blk.style.wordBreak = 'normal';
+      blk.style.overflowWrap = 'break-word';
+      blk.style.width = 'auto';
+      blk.style.minWidth = '220px';
+      blk.style.maxWidth = `${Math.max(260, Math.min(520, Math.round((entry.w || 200) * 1.35)))}px`;
+    } else {
+      blk.style.whiteSpace = 'nowrap';
+      blk.style.wordBreak = 'normal';
+      blk.style.overflowWrap = 'normal';
+      blk.style.width = 'max-content';
+      blk.style.minWidth = 'max-content';
+      blk.style.maxWidth = 'none';
+    }
+  }
+
+  function getScrollOffsets() {
+    const docEl = document.documentElement;
+    const body = document.body;
+    const sx = window.scrollX || window.pageXOffset || docEl?.scrollLeft || body?.scrollLeft || 0;
+    const sy = window.scrollY || window.pageYOffset || docEl?.scrollTop || body?.scrollTop || 0;
+    return { x: sx, y: sy };
+  }
+
+  function updateOverlayPositions() {
+    const stage = shadowRoot?.getElementById('stage');
+    const overlayLayer = shadowRoot?.getElementById('overlayLayer');
+    if (!stage || !overlayLayer) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    const { x: scrollX, y: scrollY } = getScrollOffsets();
+    const bufferX = 30;
+    const bufferY = 15;
+
+    spatialCache.forEach((entry) => {
+      if (!entry.el) return;
+
+      let stageX, stageY;
+      if (entry.targetEl && entry.targetEl.isConnected) {
+        const pRect = entry.targetEl.getBoundingClientRect();
+        stageX = (pRect.left + (entry.offsetX || 0)) - stageRect.left;
+        stageY = (pRect.top + (entry.offsetY || 0)) - stageRect.top;
+      } else {
+        stageX = entry.docX - scrollX - stageRect.left;
+        stageY = entry.docY - scrollY - stageRect.top;
+      }
+
+      const inView = (
+        stageX + (entry.w || 60) > -bufferX &&
+        stageX < stageRect.width + bufferX &&
+        stageY + (entry.h || 20) > -bufferY &&
+        stageY < stageRect.height + bufferY
+      );
+
+      if (inView) {
+        if (!entry.el.parentElement) {
+          overlayLayer.appendChild(entry.el);
+        }
+        entry.el.style.display = 'block';
+        entry.el.style.left = `${Math.round(stageX)}px`;
+        entry.el.style.top = `${Math.round(stageY)}px`;
+      } else {
+        entry.el.style.display = 'none';
+      }
+    });
+  }
+
+  function renderSpatialItem(entry) {
+    const overlayLayer = shadowRoot?.getElementById('overlayLayer');
+    if (!overlayLayer) return;
+
+    if (!entry.el) {
+      const blk = document.createElement('div');
+      applyBlockStyle(blk, entry);
+      entry.el = blk;
+    } else {
+      applyBlockStyle(entry.el, entry);
+    }
+
+    if (!entry.el.parentElement) {
+      overlayLayer.appendChild(entry.el);
+    }
+  }
+
+  function addOrUpdateSpatialItem(item) {
+    const overlayLayer = shadowRoot?.getElementById('overlayLayer');
+    if (!overlayLayer) return;
+
+    const key = getSpatialKey(item.docX, item.docY, item.text);
+    const langKey = getLangKey();
+
+    let entry = spatialCache.get(key);
+    if (!entry) {
+      if (spatialCache.size >= MAX_SPATIAL_ITEMS) {
+        const firstKey = spatialCache.keys().next().value;
+        const oldEntry = spatialCache.get(firstKey);
+        oldEntry?.el?.remove();
+        spatialCache.delete(firstKey);
+      }
+
+      entry = {
+        key,
+        targetEl: item.targetEl || null,
+        offsetX: item.offsetX || 0,
+        offsetY: item.offsetY || 0,
+        docX: item.docX,
+        docY: item.docY,
+        w: item.w,
+        h: item.h,
+        text: item.text,
+        translatedText: item.translatedText,
+        fontSize: item.fontSize,
+        langKey,
+        el: null,
+        timestamp: Date.now()
+      };
+      spatialCache.set(key, entry);
+    } else {
+      entry.translatedText = item.translatedText;
+      entry.langKey = langKey;
+      entry.timestamp = Date.now();
+      entry.w = item.w;
+      entry.h = item.h;
+      if (item.targetEl) {
+        entry.targetEl = item.targetEl;
+        entry.offsetX = item.offsetX || 0;
+        entry.offsetY = item.offsetY || 0;
+      }
+    }
+
+    renderSpatialItem(entry);
+  }
+
+  function clearSpatialCache() {
+    spatialCache.forEach((entry) => entry.el?.remove());
+    spatialCache.clear();
+  }
+
+  function hasSpatialItemsInRect(stageRect) {
+    const { x: scrollX, y: scrollY } = getScrollOffsets();
+    for (const entry of spatialCache.values()) {
+      if (entry.targetEl && entry.targetEl.isConnected) {
+        const pRect = entry.targetEl.getBoundingClientRect();
+        const curLeft = pRect.left + (entry.offsetX || 0);
+        const curTop = pRect.top + (entry.offsetY || 0);
+        if (
+          curLeft < stageRect.right &&
+          curLeft + (entry.w || 60) > stageRect.left &&
+          curTop < stageRect.bottom &&
+          curTop + (entry.h || 20) > stageRect.top
+        ) {
+          return true;
+        }
+      } else {
+        const stageX = entry.docX - scrollX - stageRect.left;
+        const stageY = entry.docY - scrollY - stageRect.top;
+        if (
+          stageX + (entry.w || 60) > 0 &&
+          stageX < stageRect.width &&
+          stageY + (entry.h || 20) > 0 &&
+          stageY < stageRect.height
+        ) {
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /**
    * Mejora 1: Agrupamiento Semántico de Frases (Smart Sentence Grouping)
    * Agrupa nodos de texto contiguos en la misma línea para traducir oraciones completas y fluidas.
@@ -353,11 +563,11 @@
   function groupAdjacentItems(rawItems) {
     if (rawItems.length === 0) return [];
 
-    // Ordenar de arriba a abajo y de izquierda a derecha
+    // Ordenar por coordenada Y en el documento y luego por X
     rawItems.sort((a, b) => {
-      const lineDiff = a.y - b.y;
-      if (Math.abs(lineDiff) > 8) return lineDiff;
-      return a.x - b.x;
+      const lineDiff = a.docY - b.docY;
+      if (Math.abs(lineDiff) > 6) return lineDiff;
+      return a.docX - b.docX;
     });
 
     const grouped = [];
@@ -365,16 +575,17 @@
 
     for (let i = 1; i < rawItems.length; i++) {
       const item = rawItems[i];
-      const sameLine = Math.abs(item.y - current.y) < Math.max(item.h, current.h) * 0.6;
-      const nearbyX = item.x - (current.x + current.w) < 40 && item.x >= current.x;
+      const sameLine = Math.abs(item.docY - current.docY) < Math.min(item.h, current.h) * 0.5 + 4;
+      const gapX = item.docX - (current.docX + current.w);
+      const nearbyX = gapX >= -6 && gapX < 32;
 
       if (sameLine && nearbyX) {
         // Unir a la misma frase
         current.text += ' ' + item.text;
-        const right = Math.max(current.x + current.w, item.x + item.w);
-        const bottom = Math.max(current.y + current.h, item.y + item.h);
-        current.w = right - current.x;
-        current.h = bottom - current.y;
+        const right = Math.max(current.docX + current.w, item.docX + item.w);
+        const bottom = Math.max(current.docY + current.h, item.docY + item.h);
+        current.w = right - current.docX;
+        current.h = bottom - current.docY;
       } else {
         grouped.push(current);
         current = { ...item };
@@ -386,6 +597,7 @@
 
   function findTextUnderLens(stageRect) {
     const rawItems = [];
+    const { x: scrollX, y: scrollY } = getScrollOffsets();
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
@@ -412,11 +624,16 @@
       ) {
         const text = node.nodeValue.trim();
         if (text.length > 0 && !/^[\s\d.,;:\-_/\\|+*=&%#@!?()\[\]{}'"]+$/.test(text)) {
-          const compStyle = window.getComputedStyle(node.parentElement);
+          const parent = node.parentElement;
+          const pRect = parent.getBoundingClientRect();
+          const compStyle = window.getComputedStyle(parent);
           rawItems.push({
             text,
-            x: Math.max(0, rect.left - stageRect.left),
-            y: Math.max(0, rect.top - stageRect.top),
+            targetEl: parent,
+            offsetX: rect.left - pRect.left,
+            offsetY: rect.top - pRect.top,
+            docX: rect.left + scrollX,
+            docY: rect.top + scrollY,
             w: rect.width,
             h: rect.height,
             fontSize: compStyle.fontSize || '13px'
@@ -546,13 +763,17 @@
       const k = capScale * upscale;
       const lines = ocrRes.lines || [];
       if (lines.length > 0) {
+        const { x: scrollX, y: scrollY } = getScrollOffsets();
         const items = lines.map((line) => {
           const h = (line.bbox.y1 - line.bbox.y0) / k;
+          const x = line.bbox.x0 / k;
+          const y = line.bbox.y0 / k;
+          const w = (line.bbox.x1 - line.bbox.x0) / k;
           return {
             text: line.text,
-            x: line.bbox.x0 / k,
-            y: line.bbox.y0 / k,
-            w: (line.bbox.x1 - line.bbox.x0) / k,
+            docX: x + stageRect.left + scrollX,
+            docY: y + stageRect.top + scrollY,
+            w,
             h,
             fontSize: `${Math.max(11, Math.min(28, Math.round(h * 0.8)))}px`
           };
@@ -589,7 +810,6 @@
   async function translateAndDisplay(items, stageRect) {
     const lens = shadowRoot.getElementById('lens');
     const statusText = shadowRoot.getElementById('statusText');
-    const overlayLayer = shadowRoot.getElementById('overlayLayer');
     const reader = shadowRoot.getElementById('reader');
     const langLabel = shadowRoot.getElementById('langLabel');
 
@@ -617,25 +837,43 @@
           }
         }
 
-        if (currentMode === 'overlay') {
-          overlayLayer.innerHTML = '';
-          res.translations.forEach((translatedText, i) => {
-            const it = items[i];
-            const blk = document.createElement('div');
-            blk.className = 'blk';
-            blk.textContent = translatedText;
-            blk.style.left = `${it.x}px`;
-            blk.style.top = `${it.y}px`;
-            blk.style.maxWidth = `${Math.min(it.w * 1.5 + 20, stageRect.width - it.x - 12)}px`;
-            blk.style.fontSize = it.fontSize;
-            overlayLayer.appendChild(blk);
+        res.translations.forEach((translatedText, i) => {
+          const it = items[i];
+          addOrUpdateSpatialItem({
+            ...it,
+            translatedText
           });
-        } else {
+        });
+
+        updateOverlayPositions();
+
+        if (currentMode === 'reader') {
+          const { x: scrollX, y: scrollY } = getScrollOffsets();
+          const allVisibleTranslations = Array.from(spatialCache.values())
+            .filter((entry) => {
+              if (entry.targetEl && entry.targetEl.isConnected) {
+                const pRect = entry.targetEl.getBoundingClientRect();
+                const curLeft = pRect.left + (entry.offsetX || 0);
+                const curTop = pRect.top + (entry.offsetY || 0);
+                return curLeft < stageRect.right &&
+                       curLeft + (entry.w || 60) > stageRect.left &&
+                       curTop < stageRect.bottom &&
+                       curTop + (entry.h || 20) > stageRect.top;
+              }
+              const stageX = entry.docX - scrollX - stageRect.left;
+              const stageY = entry.docY - scrollY - stageRect.top;
+              return stageX + (entry.w || 60) > 0 &&
+                     stageX < stageRect.width &&
+                     stageY + (entry.h || 20) > 0 &&
+                     stageY < stageRect.height;
+            })
+            .map((e) => e.translatedText);
+
           reader.innerHTML = `<div style="padding:16px;color:#f1f5f9;">
             <div style="font-weight:700;margin-bottom:12px;color:#79a6ff;font-size:12px;text-transform:uppercase;">
               Traducción (${(detectedSourceLang || sourceLang).toUpperCase()} → ${targetLang.toUpperCase()})
             </div>
-            ${res.translations.map((t) => `<p style="margin:0 0 12px 0;line-height:1.55;">${escapeHtml(t)}</p>`).join('')}
+            ${allVisibleTranslations.map((t) => `<p style="margin:0 0 12px 0;line-height:1.55;">${escapeHtml(t)}</p>`).join('')}
           </div>`;
         }
       }
@@ -658,33 +896,73 @@
 
     const lens = shadowRoot.getElementById('lens');
     const stage = shadowRoot.getElementById('stage');
-    const overlayLayer = shadowRoot.getElementById('overlayLayer');
     const reader = shadowRoot.getElementById('reader');
+    const statusText = shadowRoot.getElementById('statusText');
 
     if (!stage || !lens) return;
 
     const stageRect = stage.getBoundingClientRect();
     if (stageRect.width < 50 || stageRect.height < 50) return;
 
+    // Sincronizar transformación del overlay con la vista de la página
+    updateOverlayPositions();
+
     // 1. Extraer texto visible bajo la lente con agrupamiento de oraciones
     const items = findTextUnderLens(stageRect);
 
     if (items.length === 0) {
-      overlayLayer.innerHTML = '';
       lastScannedSignature = '';
       if (currentMode === 'reader') {
         reader.innerHTML = '<div style="color:#94a3b8;padding:14px;">Buscando texto en la imagen…</div>';
       }
-      // Sin texto en el DOM (imágenes, canvas, vídeo): intentar OCR visual automático
+
+      // Comprobar si ya existen bloques en memoria en esta región geográfica del documento
+      const hasCached = hasSpatialItemsInRect(stageRect);
+
+      if (hasCached) {
+        // Ya tenemos texto en memoria para esta zona, no relanzar OCR pesado innecesariamente
+        if (!isPaused) {
+          lens.dataset.state = 'idle';
+          statusText.textContent = 'Lista';
+        }
+        return;
+      }
+
+      // Sin texto en el DOM ni en caché: intentar OCR visual de la zona
       performVisualOCR(stageRect, { force: false });
       return;
     }
 
-    const currentSignature = items.map((it) => it.text).join('||') + `::${targetLang}::${sourceLang}`;
+    // Comprobar cuáles ya están en la memoria espacial
+    const currentLangKey = getLangKey();
+    const uncachedItems = [];
+
+    items.forEach((it) => {
+      const key = getSpatialKey(it.docX, it.docY, it.text);
+      const cached = spatialCache.get(key);
+      if (cached && cached.langKey === currentLangKey) {
+        renderSpatialItem(cached);
+      } else {
+        uncachedItems.push(it);
+      }
+    });
+
+    updateOverlayPositions();
+
+    // Si todo el texto bajo la lente ya estaba en memoria, no necesitamos re-traducir
+    if (uncachedItems.length === 0) {
+      if (!isPaused) {
+        lens.dataset.state = 'idle';
+        statusText.textContent = 'Lista';
+      }
+      return;
+    }
+
+    const currentSignature = uncachedItems.map((it) => it.text).join('||') + `::${targetLang}::${sourceLang}`;
     if (currentSignature === lastScannedSignature) return;
     lastScannedSignature = currentSignature;
 
-    await translateAndDisplay(items, stageRect);
+    await translateAndDisplay(uncachedItems, stageRect);
   }
 
   function scheduleScan(ms = 350) {
@@ -764,6 +1042,7 @@
         const dy = e.clientY - dragStartY;
         wrapper.style.left = `${Math.max(10, Math.min(window.innerWidth - 100, startLeft + dx))}px`;
         wrapper.style.top = `${Math.max(10, Math.min(window.innerHeight - 60, startTop + dy))}px`;
+        updateOverlayPositions();
       } else if (isResizing) {
         const dx = e.clientX - rStartX;
         const dy = e.clientY - rStartY;
@@ -780,6 +1059,7 @@
           wrapper.style.height = `${newH}px`;
           wrapper.style.top = `${rStartT + (rStartH - newH)}px`;
         }
+        updateOverlayPositions();
       }
     });
 
@@ -787,7 +1067,8 @@
       if (isDragging || isResizing) {
         isDragging = false;
         isResizing = false;
-        scheduleScan(250);
+        updateOverlayPositions();
+        scheduleScan(120);
       }
     });
 
@@ -821,7 +1102,9 @@
         detectedSourceLang = null;
         root.getElementById('langLabel').textContent = sourceLang.toUpperCase();
         langMenu.hidden = true;
+        clearSpatialCache();
         lastScannedSignature = '';
+        lastVisualOcrSignature = '';
         scheduleScan(100);
       });
     });
@@ -843,13 +1126,15 @@
 
     // 7. Botón Forzar Traducción
     refreshBtn.addEventListener('click', () => {
+      clearSpatialCache();
       lastScannedSignature = '';
+      lastVisualOcrSignature = '';
       performScanAndTranslate();
     });
 
     // 8. Botón OCR Visual (Captura de Imagen)
     ocrVisualBtn?.addEventListener('click', () => {
-      performVisualOCR(stage.getBoundingClientRect());
+      performVisualOCR(stage.getBoundingClientRect(), { force: true });
     });
 
     // 9. Cambiar Modo (Lente / Lector)
@@ -858,18 +1143,26 @@
       lens.dataset.mode = currentMode;
       modeBtn.innerHTML = currentMode === 'overlay' ? ICONS.lensMode : ICONS.readerMode;
       reader.hidden = currentMode !== 'reader';
-      // Limpiar ambas capas para que no queden restos de la vista anterior
-      root.getElementById('overlayLayer').innerHTML = '';
-      if (currentMode !== 'reader') reader.innerHTML = '';
+      if (currentMode === 'overlay') {
+        updateOverlayPositions();
+      }
       lastScannedSignature = '';
       scheduleScan(100);
     });
 
-    // 10. Desplazamiento de página web
-    window.addEventListener('scroll', () => {
+    // 10. Desplazamiento y cambio de tamaño de página web
+    const onScroll = () => {
+      updateOverlayPositions();
       if (isLensActive && !isPaused) {
-        scheduleScan(450);
+        scheduleScan(200);
       }
+    };
+
+    window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+    document.addEventListener('scroll', onScroll, { capture: true, passive: true });
+
+    window.addEventListener('resize', () => {
+      updateOverlayPositions();
     }, { passive: true });
   }
 
@@ -879,7 +1172,8 @@
       hostEl.style.display = 'block';
       isLensActive = true;
       lastScannedSignature = '';
-      scheduleScan(200);
+      updateOverlayPositions();
+      scheduleScan(150);
     }
   }
 
@@ -887,8 +1181,6 @@
     if (hostEl) {
       hostEl.style.display = 'none';
       isLensActive = false;
-      const overlayLayer = shadowRoot?.getElementById('overlayLayer');
-      if (overlayLayer) overlayLayer.innerHTML = '';
     }
   }
 
