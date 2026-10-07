@@ -1,6 +1,6 @@
 /**
  * Content Script para Firefox WebExtension
- * Lupa OCR Transparente — Inyección del overlay en Shadow DOM y click-through
+ * Lupa OCR Transparente — Inyección del overlay en Shadow DOM, click-through y traducción en vivo
  */
 
 (() => {
@@ -11,10 +11,13 @@
   let shadowRoot = null;
   let isLensActive = false;
   let isPaused = false;
-  let currentOpacity = 14;
+  let isScanning = false;
+  let currentOpacity = 16;
   let currentMode = 'overlay'; // 'overlay' | 'reader'
   let sourceLang = 'auto';
   let targetLang = 'es';
+  let scanDebounceTimer = null;
+  let lastScannedTextSignature = '';
 
   const ICONS = {
     logo: `<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><defs><linearGradient id="lupa-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#79a6ff"/><stop offset="1" stop-color="#b79bff"/></linearGradient></defs><circle cx="10.5" cy="10.5" r="7" stroke="url(#lupa-grad)" stroke-width="2.2"/><path d="M15.8 15.8 21 21" stroke="url(#lupa-grad)" stroke-width="2.6"/><path d="M7.6 9.3h5.8M7.6 12h4" stroke="#eaf0ff" stroke-width="1.7"/></svg>`,
@@ -38,82 +41,261 @@
 
     shadowRoot = hostEl.attachShadow({ mode: 'open' });
 
-    // Inyectar hoja de estilos principal
-    const styleLink = document.createElement('link');
-    styleLink.rel = 'stylesheet';
-    styleLink.href = browser.runtime.getURL('src/renderer/styles.css');
-    shadowRoot.appendChild(styleLink);
+    // Estilos embebidos directos para garantizar renderizado y transparencia perfecta inmediata
+    const baseStyle = document.createElement('style');
+    baseStyle.textContent = `
+      :host, #lupa-wrapper, .lens {
+        --pad: 8px;
+        --bar-h: 42px;
+        --r: 14px;
+        --accent: #79a6ff;
+        --accent-2: #b79bff;
+        --ok: #4ade80;
+        --warn: #fbbf24;
+        --err: #f87171;
+        --ink: #eaf0ff;
+        --ink-dim: #9aa6c4;
+        --line: rgba(255, 255, 255, 0.14);
+        --panel: rgba(15, 18, 30, 0.94);
+        --panel-hi: rgba(255, 255, 255, 0.08);
+        --glass: ${currentOpacity / 100};
+        --glass-rgb: 9, 13, 24;
+        --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-family: var(--ui-font);
+        color: var(--ink);
+      }
+      * { box-sizing: border-box; }
+      button { font: inherit; color: inherit; cursor: pointer; border: 0; background: none; padding: 0; }
+
+      .lens {
+        position: relative;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+      }
+      .glass {
+        position: absolute;
+        inset: 0;
+        border-radius: var(--r);
+        background: rgba(var(--glass-rgb), var(--glass));
+        backdrop-filter: blur(4px) saturate(130%);
+        -webkit-backdrop-filter: blur(4px) saturate(130%);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.45);
+        transition: background 0.15s ease;
+      }
+      .frame {
+        position: absolute;
+        inset: 0;
+        border-radius: var(--r);
+        pointer-events: none;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1.5px rgba(121, 166, 255, 0.9);
+      }
+      .bar {
+        position: absolute;
+        top: 0; left: 0; right: 0;
+        height: var(--bar-h);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 0 8px 0 12px;
+        background: var(--panel);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        color: var(--ink);
+        border-radius: var(--r) var(--r) 10px 10px;
+        border-bottom: 1px solid var(--line);
+        pointer-events: auto;
+        z-index: 10;
+      }
+      .brand { display: flex; align-items: center; gap: 8px; cursor: move; }
+      .logo { width: 22px; height: 22px; display: grid; place-items: center; }
+      .dot {
+        width: 8px; height: 8px; border-radius: 50%;
+        background: var(--ok);
+        box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.25);
+        transition: background 0.2s, box-shadow 0.2s;
+      }
+      .lens[data-state="busy"] .dot {
+        background: var(--accent);
+        box-shadow: 0 0 0 3px rgba(121, 166, 255, 0.35);
+        animation: pulse 1s infinite;
+      }
+      .lens[data-state="paused"] .dot {
+        background: var(--warn);
+        box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35);
+      }
+      @keyframes pulse { 50% { transform: scale(1.3); } }
+      .status-text { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+
+      .chip {
+        display: flex; align-items: center; gap: 6px;
+        height: 28px; padding: 0 10px;
+        border-radius: 9px;
+        background: var(--panel-hi);
+        border: 1px solid var(--line);
+        color: var(--ink);
+        font-size: 12px; font-weight: 600;
+        cursor: pointer;
+      }
+      .chip:hover { background: rgba(255, 255, 255, 0.14); }
+      #targetLabel { color: var(--accent); }
+
+      .tools { display: flex; align-items: center; gap: 2px; }
+      .tool {
+        width: 30px; height: 30px; border-radius: 9px;
+        display: grid; place-items: center;
+        color: var(--ink-dim);
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      .tool:hover { background: var(--panel-hi); color: #fff; }
+      .tool-close:hover { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+
+      .progress {
+        position: absolute; z-index: 12;
+        top: var(--bar-h); left: 14px; right: 14px; height: 2px;
+        border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity 0.2s;
+        background: transparent;
+      }
+      .lens[data-busy="1"] .progress { opacity: 1; }
+      .progress::after {
+        content: ""; position: absolute; inset: 0; width: 40%;
+        background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
+        animation: slide-bar 1s linear infinite;
+      }
+      @keyframes slide-bar { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+
+      .stage {
+        position: absolute;
+        top: var(--bar-h); bottom: 0; left: 0; right: 0;
+        pointer-events: none;
+        overflow: hidden;
+      }
+      .overlay-layer { position: absolute; inset: 0; pointer-events: none; }
+      .blk {
+        position: absolute;
+        border-radius: 4px;
+        padding: 2px 6px;
+        line-height: 1.25;
+        font-family: var(--ui-font);
+        background: rgba(10, 14, 26, 0.94);
+        color: #f8fafc;
+        border: 1px solid rgba(121, 166, 255, 0.35);
+        box-shadow: 0 3px 12px rgba(0, 0, 0, 0.6);
+        pointer-events: auto;
+        font-size: 13px;
+        word-break: break-word;
+        animation: pop-in 0.15s ease-out;
+      }
+      @keyframes pop-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
+
+      .reader {
+        position: absolute; inset: 0;
+        background: rgba(10, 14, 26, 0.96);
+        color: var(--ink);
+        padding: 16px;
+        overflow-y: auto;
+        pointer-events: auto;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+
+      .pop {
+        position: absolute;
+        top: calc(var(--bar-h) + 6px);
+        right: 10px;
+        background: rgba(15, 18, 30, 0.98);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 12px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(16px);
+        z-index: 20;
+        width: 220px;
+        pointer-events: auto;
+      }
+      .pop-title { font-size: 12px; font-weight: 600; color: var(--ink-dim); margin-bottom: 8px; }
+      .seg-btn {
+        padding: 6px 10px;
+        background: rgba(255, 255, 255, 0.05);
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: #fff;
+        font-size: 12px;
+        cursor: pointer;
+        text-align: left;
+      }
+      .seg-btn:hover { background: rgba(121, 166, 255, 0.2); border-color: var(--accent); }
+    `;
+    shadowRoot.appendChild(baseStyle);
 
     // Contenedor principal de la lente flotante
     const wrapper = document.createElement('div');
     wrapper.id = 'lupa-wrapper';
-    wrapper.style.cssText = 'position:absolute;left:80px;top:80px;width:520px;height:340px;min-width:240px;min-height:160px;pointer-events:none;';
+    wrapper.style.cssText = 'position:absolute;left:100px;top:100px;width:540px;height:340px;min-width:240px;min-height:160px;pointer-events:none;';
 
     wrapper.innerHTML = `
-      <div id="lens" class="lens" data-mode="${currentMode}" data-theme="dark" data-state="idle" style="position:relative;width:100%;height:100%;pointer-events:none;--glass:${currentOpacity / 100};">
+      <div id="lens" class="lens" data-mode="${currentMode}" data-theme="dark" data-state="idle">
         <div class="glass" id="glass"></div>
         <div class="frame"></div>
 
         <!-- Barra superior interactiva -->
-        <header id="bar" class="bar" data-interactive style="pointer-events:auto;">
-          <div class="brand" id="brand" data-drag data-tip="Arrastra para mover la lente" style="cursor:move;">
-            <span class="logo" id="logo">${ICONS.logo}</span>
+        <header id="bar" class="bar">
+          <div class="brand" id="brand" data-drag title="Arrastra para mover la lente">
+            <span class="logo">${ICONS.logo}</span>
             <span class="dot" id="dot"></span>
             <span class="status-text" id="statusText">Lista</span>
           </div>
 
-          <button id="langBtn" class="chip" data-tip="Idioma original" type="button">
+          <button id="langBtn" class="chip" title="Idioma original" type="button">
             <span id="langLabel">${sourceLang.toUpperCase()}</span>
             <span class="arrow">${ICONS.arrow}</span>
             <span id="targetLabel">${targetLang.toUpperCase()}</span>
           </button>
 
-          <div class="spacer" id="spacer" data-drag style="flex:1;cursor:move;"></div>
+          <div class="spacer" id="spacer" data-drag style="flex:1;cursor:move;height:100%;"></div>
 
           <div class="tools">
-            <button id="modeBtn" class="tool" type="button" title="Cambiar vista">${ICONS.lensMode}</button>
+            <button id="modeBtn" class="tool" type="button" title="Cambiar vista (Superposición / Lector)">${ICONS.lensMode}</button>
             <button id="opacityBtn" class="tool" type="button" title="Transparencia">${ICONS.droplet}</button>
-            <button id="pauseBtn" class="tool" type="button" title="Pausar / Reanudar">${ICONS.pause}</button>
+            <button id="pauseBtn" class="tool" type="button" title="Pausar / Reanudar lectura">${ICONS.pause}</button>
             <button id="refreshBtn" class="tool" type="button" title="Traducir ahora">${ICONS.refresh}</button>
-            <button id="settingsBtn" class="tool" type="button" title="Ajustes">${ICONS.settings}</button>
-            <span class="sep"></span>
             <button id="closeBtn" class="tool tool-close" type="button" title="Cerrar Lupa">${ICONS.close}</button>
           </div>
         </header>
 
         <div class="progress" id="progress"></div>
 
-        <!-- Área transparente con clics a través -->
-        <main id="stage" class="stage" style="pointer-events:none;">
-          <div id="overlayLayer" class="overlay-layer" style="pointer-events:none;"></div>
-          <article id="reader" class="reader" hidden style="pointer-events:auto;"></article>
-          <div id="hint" class="hint" hidden></div>
+        <!-- Área de visualización transparente -->
+        <main id="stage" class="stage">
+          <div id="overlayLayer" class="overlay-layer"></div>
+          <article id="reader" class="reader" hidden></article>
         </main>
 
         <!-- Tiradores de redimensionado -->
-        <div class="resize-handle rh-nw" data-dir="nw" style="position:absolute;top:0;left:0;width:14px;height:14px;cursor:nwse-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-ne" data-dir="ne" style="position:absolute;top:0;right:0;width:14px;height:14px;cursor:nesw-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-sw" data-dir="sw" style="position:absolute;bottom:0;left:0;width:14px;height:14px;cursor:nesw-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-se" data-dir="se" style="position:absolute;bottom:0;right:0;width:14px;height:14px;cursor:nwse-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-n"  data-dir="n"  style="position:absolute;top:0;left:14px;right:14px;height:6px;cursor:ns-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-s"  data-dir="s"  style="position:absolute;bottom:0;left:14px;right:14px;height:6px;cursor:ns-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-w"  data-dir="w"  style="position:absolute;left:0;top:14px;bottom:14px;width:6px;cursor:ew-resize;pointer-events:auto;"></div>
-        <div class="resize-handle rh-e"  data-dir="e"  style="position:absolute;right:0;top:14px;bottom:14px;width:6px;cursor:ew-resize;pointer-events:auto;"></div>
+        <div class="resize-handle rh-nw" data-dir="nw" style="position:absolute;top:0;left:0;width:14px;height:14px;cursor:nwse-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-ne" data-dir="ne" style="position:absolute;top:0;right:0;width:14px;height:14px;cursor:nesw-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-sw" data-dir="sw" style="position:absolute;bottom:0;left:0;width:14px;height:14px;cursor:nesw-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-se" data-dir="se" style="position:absolute;bottom:0;right:0;width:14px;height:14px;cursor:nwse-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-n"  data-dir="n"  style="position:absolute;top:0;left:14px;right:14px;height:6px;cursor:ns-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-s"  data-dir="s"  style="position:absolute;bottom:0;left:14px;right:14px;height:6px;cursor:ns-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-w"  data-dir="w"  style="position:absolute;left:0;top:14px;bottom:14px;width:6px;cursor:ew-resize;pointer-events:auto;z-index:15;"></div>
+        <div class="resize-handle rh-e"  data-dir="e"  style="position:absolute;right:0;top:14px;bottom:14px;width:6px;cursor:ew-resize;pointer-events:auto;z-index:15;"></div>
 
         <!-- Popover Transparencia -->
-        <div id="opacityPop" class="pop pop-opacity" data-interactive hidden style="pointer-events:auto;">
-          <div class="pop-title">Transparencia</div>
-          <div class="slider-row" style="display:flex;align-items:center;gap:10px;padding:8px 0;">
-            <input id="opacityRange" type="range" min="5" max="100" step="1" value="${currentOpacity}" style="flex:1;">
-            <span id="opacityValue" style="font-size:12px;color:#fff;">${currentOpacity}%</span>
+        <div id="opacityPop" class="pop" hidden>
+          <div class="pop-title">Transparencia del cristal</div>
+          <div style="display:flex;align-items:center;gap:10px;padding:6px 0;">
+            <input id="opacityRange" type="range" min="5" max="95" step="1" value="${currentOpacity}" style="flex:1;cursor:pointer;">
+            <span id="opacityValue" style="font-size:12px;color:#fff;min-width:32px;">${currentOpacity}%</span>
           </div>
         </div>
 
         <!-- Popover Idioma -->
-        <div id="langMenu" class="pop pop-lang" data-interactive hidden style="pointer-events:auto;">
+        <div id="langMenu" class="pop" hidden>
           <div class="pop-title">Idioma del texto original</div>
-          <div id="langList" class="list" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:8px 0;">
-            <button class="seg-btn" data-lang="auto">Automático</button>
+          <div id="langList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
+            <button class="seg-btn" data-lang="auto">Auto</button>
             <button class="seg-btn" data-lang="en">Inglés</button>
             <button class="seg-btn" data-lang="es">Español</button>
             <button class="seg-btn" data-lang="fr">Francés</button>
@@ -128,6 +310,169 @@
     document.documentElement.appendChild(hostEl);
 
     setupLensInteractions(wrapper, shadowRoot);
+
+    // Cargar configuración guardada de usuario
+    browser.storage?.local?.get(['targetLang', 'defaultOpacity']).then((cfg) => {
+      if (cfg?.targetLang) {
+        targetLang = cfg.targetLang;
+        const targetLabel = shadowRoot.getElementById('targetLabel');
+        if (targetLabel) targetLabel.textContent = targetLang.toUpperCase();
+      }
+      if (cfg?.defaultOpacity) {
+        currentOpacity = cfg.defaultOpacity;
+        const lens = shadowRoot.getElementById('lens');
+        const opacityValue = shadowRoot.getElementById('opacityValue');
+        const opacityRange = shadowRoot.getElementById('opacityRange');
+        if (lens) lens.style.setProperty('--glass', currentOpacity / 100);
+        if (opacityValue) opacityValue.textContent = `${currentOpacity}%`;
+        if (opacityRange) opacityRange.value = currentOpacity;
+      }
+    });
+
+    // Disparar escaneo inicial
+    scheduleScan(300);
+  }
+
+  // Escaneo y extracción de texto bajo el área de la lente
+  function findTextUnderLens(stageRect) {
+    const items = [];
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
+      acceptNode(node) {
+        if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+        const parent = node.parentElement;
+        if (!parent || parent.closest('#lupa-extension-host')) return NodeFilter.FILTER_REJECT;
+        const style = window.getComputedStyle(parent);
+        if (style.visibility === 'hidden' || style.display === 'none' || style.opacity === '0') {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    let node;
+    while ((node = walker.nextNode())) {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const rect = range.getBoundingClientRect();
+
+      // Verificar intersección con el rectángulo de la lente
+      if (
+        rect.width > 2 && rect.height > 2 &&
+        rect.left < stageRect.right && rect.right > stageRect.left &&
+        rect.top < stageRect.bottom && rect.bottom > stageRect.top
+      ) {
+        const text = node.nodeValue.trim();
+        // Omitir números sueltos o puntuación irrelevante
+        if (text.length > 0 && !/^[\s\d.,;:\-_/\\|+*=&%#@!?()\[\]{}'"]+$/.test(text)) {
+          const compStyle = window.getComputedStyle(node.parentElement);
+          items.push({
+            text,
+            x: Math.max(0, rect.left - stageRect.left),
+            y: Math.max(0, rect.top - stageRect.top),
+            w: rect.width,
+            h: rect.height,
+            fontSize: compStyle.fontSize || '13px'
+          });
+        }
+      }
+    }
+    return items;
+  }
+
+  async function performScanAndTranslate() {
+    if (!shadowRoot || !isLensActive || isPaused || isScanning) return;
+
+    const lens = shadowRoot.getElementById('lens');
+    const stage = shadowRoot.getElementById('stage');
+    const statusText = shadowRoot.getElementById('statusText');
+    const overlayLayer = shadowRoot.getElementById('overlayLayer');
+    const reader = shadowRoot.getElementById('reader');
+
+    if (!stage || !lens) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    if (stageRect.width < 50 || stageRect.height < 50) return;
+
+    // 1. Extraer texto visible bajo la lente
+    const items = findTextUnderLens(stageRect);
+
+    if (items.length === 0) {
+      overlayLayer.innerHTML = '';
+      if (currentMode === 'reader') {
+        reader.innerHTML = '<div style="color:#94a3b8;padding:12px;">Mueve la lente sobre un texto para traducirlo aquí.</div>';
+      }
+      return;
+    }
+
+    // Comprobar si el texto ya fue traducido recientemente para evitar parpadeos
+    const currentSignature = items.map((it) => it.text).join('||') + `::${targetLang}`;
+    if (currentSignature === lastScannedTextSignature) {
+      return;
+    }
+
+    isScanning = true;
+    lens.dataset.busy = '1';
+    lens.dataset.state = 'busy';
+    statusText.textContent = 'Traduciendo...';
+
+    try {
+      // 2. Enviar textos a traducir al background script
+      const textsToTranslate = items.map((it) => it.text);
+      const res = await browser.runtime.sendMessage({
+        action: 'TRANSLATE_TEXTS',
+        texts: textsToTranslate,
+        from: sourceLang,
+        to: targetLang
+      });
+
+      if (res && res.translations) {
+        lastScannedTextSignature = currentSignature;
+
+        if (currentMode === 'overlay') {
+          // Renderizar parches traducidos exactamente sobre el original
+          overlayLayer.innerHTML = '';
+          res.translations.forEach((translatedText, i) => {
+            const it = items[i];
+            const blk = document.createElement('div');
+            blk.className = 'blk';
+            blk.textContent = translatedText;
+            blk.style.left = `${it.x}px`;
+            blk.style.top = `${it.y}px`;
+            blk.style.maxWidth = `${Math.min(it.w * 1.4, stageRect.width - it.x - 12)}px`;
+            blk.style.fontSize = it.fontSize;
+            overlayLayer.appendChild(blk);
+          });
+        } else {
+          // Modo lector
+          reader.innerHTML = `<div style="padding:14px;color:#f1f5f9;">
+            <div style="font-weight:700;margin-bottom:12px;color:#79a6ff;font-size:12px;text-transform:uppercase;">Traducción al ${targetLang.toUpperCase()}</div>
+            ${res.translations.map((t) => `<p style="margin:0 0 10px 0;line-height:1.5;">${escapeHtml(t)}</p>`).join('')}
+          </div>`;
+        }
+      }
+    } catch (err) {
+      console.error('[Lupa OCR] Error en traducción:', err);
+      lens.dataset.state = 'error';
+      statusText.textContent = 'Error';
+    } finally {
+      isScanning = false;
+      lens.dataset.busy = '0';
+      if (!isPaused) {
+        lens.dataset.state = 'idle';
+        statusText.textContent = 'Lista';
+      }
+    }
+  }
+
+  function scheduleScan(ms = 350) {
+    if (scanDebounceTimer) clearTimeout(scanDebounceTimer);
+    scanDebounceTimer = setTimeout(() => {
+      performScanAndTranslate();
+    }, ms);
+  }
+
+  function escapeHtml(str) {
+    return str.replace(/[&<>'"]/g, (tag) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[tag] || tag));
   }
 
   function setupLensInteractions(wrapper, root) {
@@ -141,9 +486,9 @@
     const langBtn = root.getElementById('langBtn');
     const langMenu = root.getElementById('langMenu');
     const pauseBtn = root.getElementById('pauseBtn');
+    const refreshBtn = root.getElementById('refreshBtn');
     const modeBtn = root.getElementById('modeBtn');
     const statusText = root.getElementById('statusText');
-    const dot = root.getElementById('dot');
     const lens = root.getElementById('lens');
     const reader = root.getElementById('reader');
 
@@ -153,7 +498,7 @@
     let startLeft = 0, startTop = 0;
 
     const onMouseDownDrag = (e) => {
-      if (e.target.closest('button')) return;
+      if (e.target.closest('button') || e.target.closest('input')) return;
       isDragging = true;
       dragStartX = e.clientX;
       dragStartY = e.clientY;
@@ -198,12 +543,8 @@
         const dx = e.clientX - rStartX;
         const dy = e.clientY - rStartY;
 
-        if (resizeDir.includes('e')) {
-          wrapper.style.width = `${Math.max(240, rStartW + dx)}px`;
-        }
-        if (resizeDir.includes('s')) {
-          wrapper.style.height = `${Math.max(160, rStartH + dy)}px`;
-        }
+        if (resizeDir.includes('e')) wrapper.style.width = `${Math.max(240, rStartW + dx)}px`;
+        if (resizeDir.includes('s')) wrapper.style.height = `${Math.max(160, rStartH + dy)}px`;
         if (resizeDir.includes('w')) {
           const newW = Math.max(240, rStartW - dx);
           wrapper.style.width = `${newW}px`;
@@ -218,8 +559,11 @@
     });
 
     window.addEventListener('mouseup', () => {
-      isDragging = false;
-      isResizing = false;
+      if (isDragging || isResizing) {
+        isDragging = false;
+        isResizing = false;
+        scheduleScan(250);
+      }
     });
 
     // 3. Cerrar lente
@@ -237,6 +581,7 @@
       currentOpacity = e.target.value;
       lens.style.setProperty('--glass', currentOpacity / 100);
       opacityValue.textContent = `${currentOpacity}%`;
+      browser.storage?.local?.set({ defaultOpacity: currentOpacity });
     });
 
     // 5. Menú de Idiomas
@@ -250,6 +595,8 @@
         sourceLang = btn.dataset.lang;
         root.getElementById('langLabel').textContent = sourceLang.toUpperCase();
         langMenu.hidden = true;
+        lastScannedTextSignature = '';
+        scheduleScan(100);
       });
     });
 
@@ -264,19 +611,32 @@
         pauseBtn.innerHTML = ICONS.pause;
         statusText.textContent = 'Lista';
         lens.dataset.state = 'idle';
+        scheduleScan(100);
       }
     });
 
-    // 7. Cambiar Modo (Lente / Lector)
+    // 7. Botón Forzar Traducción
+    refreshBtn.addEventListener('click', () => {
+      lastScannedTextSignature = '';
+      performScanAndTranslate();
+    });
+
+    // 8. Cambiar Modo (Lente / Lector)
     modeBtn.addEventListener('click', () => {
       currentMode = currentMode === 'overlay' ? 'reader' : 'overlay';
       lens.dataset.mode = currentMode;
       modeBtn.innerHTML = currentMode === 'overlay' ? ICONS.lensMode : ICONS.readerMode;
       reader.hidden = currentMode !== 'reader';
-      if (currentMode === 'reader') {
-        reader.innerHTML = '<div style="padding:16px;color:#cbd5e1;">Coloca la lente sobre texto para leerlo cómodamente en este panel.</div>';
-      }
+      lastScannedTextSignature = '';
+      scheduleScan(100);
     });
+
+    // 9. Reaccionar al scroll de la página web
+    window.addEventListener('scroll', () => {
+      if (isLensActive && !isPaused) {
+        scheduleScan(450);
+      }
+    }, { passive: true });
   }
 
   function showLens() {
@@ -284,6 +644,8 @@
     if (hostEl) {
       hostEl.style.display = 'block';
       isLensActive = true;
+      lastScannedTextSignature = '';
+      scheduleScan(200);
     }
   }
 
@@ -291,6 +653,8 @@
     if (hostEl) {
       hostEl.style.display = 'none';
       isLensActive = false;
+      const overlayLayer = shadowRoot?.getElementById('overlayLayer');
+      if (overlayLayer) overlayLayer.innerHTML = '';
     }
   }
 
@@ -313,6 +677,12 @@
     if (message.action === 'TOGGLE_LENS' || (message.action === 'COMMAND' && message.command === 'toggle-lens')) {
       const active = toggleLens();
       sendResponse({ active });
+      return;
+    }
+
+    if (message.action === 'COMMAND' && message.command === 'translate-now') {
+      lastScannedTextSignature = '';
+      performScanAndTranslate();
       return;
     }
 
