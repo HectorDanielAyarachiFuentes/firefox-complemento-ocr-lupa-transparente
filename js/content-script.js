@@ -581,15 +581,19 @@
 
       .reader {
         position: absolute; inset: 0;
-        z-index: 9;
-        background: rgba(10, 14, 26, 0.96);
+        z-index: 10;
+        background: rgba(8, 11, 20, 0.94);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid rgba(121, 166, 255, 0.25);
         color: var(--ink);
         padding: 16px;
         overflow-y: auto;
         pointer-events: auto;
-        font-size: 14px;
+        font-size: 13.5px;
         line-height: 1.6;
         border-radius: var(--r);
+        box-shadow: inset 0 0 20px rgba(0, 0, 0, 0.5);
       }
 
       .pop {
@@ -735,7 +739,7 @@
     setupLensInteractions(wrapper, shadowRoot);
 
     // Cargar y aplicar configuración guardada de usuario
-    browser.storage?.local?.get(['targetLang', 'defaultOpacity', 'preferredDockPos', 'dockPosition']).then((cfg) => {
+    browser.storage?.local?.get(['targetLang', 'defaultOpacity', 'preferredDockPos', 'dockPosition', 'currentMode']).then((cfg) => {
       if (cfg?.targetLang) {
         targetLang = cfg.targetLang;
         const targetLabel = shadowRoot.getElementById('targetLabel');
@@ -754,6 +758,13 @@
         preferredDockPos = cfg.preferredDockPos;
       } else if (cfg?.dockPosition) {
         preferredDockPos = cfg.dockPosition;
+      }
+      if (cfg?.currentMode) {
+        currentMode = cfg.currentMode;
+        const updateModeUIFn = shadowRoot.getElementById('lens')?._updateModeUI;
+        if (typeof updateModeUIFn === 'function') {
+          updateModeUIFn();
+        }
       }
       // Ejecutar evaluación inteligente de posición
       const evaluateSmartDockFn = shadowRoot.getElementById('lens')?._evaluateSmartDock;
@@ -819,12 +830,84 @@
     return { x: sx, y: sy };
   }
 
+  function renderReaderContent(stageRect) {
+    const reader = shadowRoot?.getElementById('reader');
+    if (!reader || currentMode !== 'reader') return;
+
+    if (!stageRect) {
+      const stage = shadowRoot?.getElementById('stage');
+      stageRect = stage?.getBoundingClientRect();
+    }
+    if (!stageRect) return;
+
+    const { x: scrollX, y: scrollY } = getScrollOffsets();
+
+    const allVisibleEntries = Array.from(spatialCache.values())
+      .filter((entry) => {
+        if (!entry.translatedText) return false;
+        if (entry.targetEl && entry.targetEl.isConnected) {
+          const pRect = entry.targetEl.getBoundingClientRect();
+          const curLeft = pRect.left + (entry.offsetX || 0);
+          const curTop = pRect.top + (entry.offsetY || 0);
+          return curLeft < stageRect.right &&
+                 curLeft + (entry.w || 60) > stageRect.left &&
+                 curTop < stageRect.bottom &&
+                 curTop + (entry.h || 20) > stageRect.top;
+        }
+        const stageX = entry.docX - scrollX - stageRect.left;
+        const stageY = entry.docY - scrollY - stageRect.top;
+        return stageX + (entry.w || 60) > 0 &&
+               stageX < stageRect.width &&
+               stageY + (entry.h || 20) > 0 &&
+               stageY < stageRect.height;
+      })
+      .sort((a, b) => a.docY - b.docY || a.docX - b.docX);
+
+    if (allVisibleEntries.length === 0) {
+      reader.innerHTML = `
+        <div style="padding:24px 16px;color:#94a3b8;font-family:var(--ui-font);text-align:center;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:160px;gap:8px;">
+          <div style="font-size:24px;opacity:0.75;">📖</div>
+          <div style="font-weight:600;color:#f1f5f9;font-size:13.5px;">Modo Lector Limpio</div>
+          <div style="font-size:12px;color:#94a3b8;max-width:280px;line-height:1.45;">
+            Traduciendo texto bajo la lente... Mueve la lupa sobre el texto o pulsa traducir.
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    reader.innerHTML = `
+      <div style="padding:14px;color:#f1f5f9;font-family:var(--ui-font);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(121, 166, 255, 0.25);">
+          <span style="font-weight:700;color:#79a6ff;font-size:11.5px;letter-spacing:0.04em;text-transform:uppercase;">
+            Traducción (${(detectedSourceLang || sourceLang).toUpperCase()} → ${targetLang.toUpperCase()})
+          </span>
+          <span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:10px;">
+            ${allVisibleEntries.length} ${allVisibleEntries.length === 1 ? 'oración' : 'oraciones'}
+          </span>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${allVisibleEntries.map((e) => `
+            <div style="background:rgba(255,255,255,0.03);border-left:3px solid #79a6ff;padding:8px 12px;border-radius:0 6px 6px 0;line-height:1.45;font-size:13px;color:#f8fafc;">
+              <div style="font-weight:500;">${escapeHtml(e.translatedText)}</div>
+              ${e.text ? `<div style="font-size:11px;color:#64748b;margin-top:3px;font-style:italic;">${escapeHtml(e.text)}</div>` : ''}
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+  }
+
   function updateOverlayPositions() {
     const stage = shadowRoot?.getElementById('stage');
     const overlayLayer = shadowRoot?.getElementById('overlayLayer');
     if (!stage || !overlayLayer) return;
 
     const stageRect = stage.getBoundingClientRect();
+    if (currentMode === 'reader') {
+      renderReaderContent(stageRect);
+      return;
+    }
     const { x: scrollX, y: scrollY } = getScrollOffsets();
     const bufferX = 30;
     const bufferY = 15;
@@ -1345,51 +1428,14 @@
             ...it,
             translatedText: cleanTranslated
           });
+          const cacheKey = `${getLangKey()}::${it.text}`;
+          domTranslationCache.set(cacheKey, cleanTranslated);
         });
 
-        updateOverlayPositions();
-
         if (currentMode === 'reader') {
-          const { x: scrollX, y: scrollY } = getScrollOffsets();
-          const allVisibleEntries = Array.from(spatialCache.values())
-            .filter((entry) => {
-              if (entry.targetEl && entry.targetEl.isConnected) {
-                const pRect = entry.targetEl.getBoundingClientRect();
-                const curLeft = pRect.left + (entry.offsetX || 0);
-                const curTop = pRect.top + (entry.offsetY || 0);
-                return curLeft < stageRect.right &&
-                       curLeft + (entry.w || 60) > stageRect.left &&
-                       curTop < stageRect.bottom &&
-                       curTop + (entry.h || 20) > stageRect.top;
-              }
-              const stageX = entry.docX - scrollX - stageRect.left;
-              const stageY = entry.docY - scrollY - stageRect.top;
-              return stageX + (entry.w || 60) > 0 &&
-                     stageX < stageRect.width &&
-                     stageY + (entry.h || 20) > 0 &&
-                     stageY < stageRect.height;
-            })
-            .sort((a, b) => a.docY - b.docY || a.docX - b.docX);
-
-          reader.innerHTML = `
-            <div style="padding:14px;color:#f1f5f9;font-family:var(--ui-font);">
-              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid rgba(121, 166, 255, 0.25);">
-                <span style="font-weight:700;color:#79a6ff;font-size:11.5px;letter-spacing:0.04em;text-transform:uppercase;">
-                  Traducción (${(detectedSourceLang || sourceLang).toUpperCase()} → ${targetLang.toUpperCase()})
-                </span>
-                <span style="font-size:11px;color:#94a3b8;background:rgba(255,255,255,0.06);padding:2px 8px;border-radius:10px;">
-                  ${allVisibleEntries.length} ${allVisibleEntries.length === 1 ? 'oración' : 'oraciones'}
-                </span>
-              </div>
-              <div style="display:flex;flex-direction:column;gap:8px;">
-                ${allVisibleEntries.map((e) => `
-                  <div style="background:rgba(255,255,255,0.03);border-left:3px solid #79a6ff;padding:8px 12px;border-radius:0 6px 6px 0;line-height:1.45;font-size:13px;color:#f8fafc;">
-                    <div>${escapeHtml(e.translatedText)}</div>
-                    ${e.text ? `<div style="font-size:11px;color:#64748b;margin-top:3px;font-style:italic;">${escapeHtml(e.text)}</div>` : ''}
-                  </div>
-                `).join('')}
-              </div>
-            </div>`;
+          renderReaderContent(stageRect);
+        } else if (currentMode === 'overlay') {
+          updateOverlayPositions();
         }
       }
     } catch (err) {
@@ -1447,7 +1493,16 @@
         }
         const origText = it.text;
         const cacheKey = `${currentLangKey}::${origText}`;
-        const cachedTrans = domTranslationCache.get(cacheKey);
+        let cachedTrans = domTranslationCache.get(cacheKey);
+
+        if (!cachedTrans) {
+          const spatialKey = getSpatialKey(it.docX, it.docY, it.text);
+          const spatialEntry = spatialCache.get(spatialKey);
+          if (spatialEntry && spatialEntry.langKey === currentLangKey && spatialEntry.translatedText) {
+            cachedTrans = spatialEntry.translatedText;
+            domTranslationCache.set(cacheKey, cachedTrans);
+          }
+        }
 
         if (cachedTrans) {
           if (it.node.nodeValue !== cachedTrans) {
@@ -1497,6 +1552,10 @@
             const cleanTrans = (trans || '').trim();
             const cacheKey = `${currentLangKey}::${it.text}`;
             domTranslationCache.set(cacheKey, cleanTrans);
+            addOrUpdateSpatialItem({
+              ...it,
+              translatedText: cleanTrans
+            });
             if (it.node && it.node.isConnected) {
               it.node.nodeValue = cleanTrans;
               activeDomNodes.add(it.node);
@@ -1521,23 +1580,25 @@
     // ==========================================
     // MODO 2 & 3: SUPERPOSICIÓN (OVERLAY) Y LECTOR
     // ==========================================
-    updateOverlayPositions();
-
     if (items.length === 0) {
       lastScannedSignature = '';
-      if (currentMode === 'reader') {
-        reader.innerHTML = '<div style="color:#94a3b8;padding:14px;">Buscando texto en la imagen…</div>';
-      }
-
       const hasCached = hasSpatialItemsInRect(stageRect);
       if (hasCached) {
         if (!isPaused) {
           lens.dataset.state = 'idle';
           statusText.textContent = 'Lista';
         }
+        if (currentMode === 'reader') {
+          renderReaderContent(stageRect);
+        } else {
+          updateOverlayPositions();
+        }
         return;
       }
 
+      if (currentMode === 'reader') {
+        renderReaderContent(stageRect);
+      }
       performVisualOCR(stageRect, { force: false });
       return;
     }
@@ -1547,15 +1608,33 @@
 
     items.forEach((it) => {
       const key = getSpatialKey(it.docX, it.docY, it.text);
-      const cached = spatialCache.get(key);
+      let cached = spatialCache.get(key);
+      if (!cached) {
+        const domCacheKey = `${currentLangKey}::${it.text}`;
+        const domTrans = domTranslationCache.get(domCacheKey);
+        if (domTrans) {
+          addOrUpdateSpatialItem({
+            ...it,
+            translatedText: domTrans
+          });
+          cached = spatialCache.get(key);
+        }
+      }
+
       if (cached && cached.langKey === currentLangKey) {
-        renderSpatialItem(cached);
+        if (currentMode === 'overlay') {
+          renderSpatialItem(cached);
+        }
       } else {
         uncachedItems.push(it);
       }
     });
 
-    updateOverlayPositions();
+    if (currentMode === 'reader') {
+      renderReaderContent(stageRect);
+    } else if (currentMode === 'overlay') {
+      updateOverlayPositions();
+    }
 
     if (uncachedItems.length === 0) {
       if (!isPaused) {
@@ -1961,22 +2040,28 @@
       const overlayLayer = root.getElementById('overlayLayer');
       if (currentMode === 'native') {
         modeBtn.innerHTML = ICONS.domMode;
-        modeBtn.title = 'Modo: DOM Nativo (Texto web cambiado directamente sin cajas). Clic para Superposición.';
+        modeBtn.removeAttribute('title');
+        modeBtn.setAttribute('data-tip', 'Modo: DOM Nativo (Clic para Superposición)');
         if (overlayLayer) overlayLayer.style.display = 'none';
         statusText.textContent = 'Modo: DOM Nativo';
+        updateNativeDomNodes(stage.getBoundingClientRect());
       } else if (currentMode === 'overlay') {
         modeBtn.innerHTML = ICONS.lensMode;
-        modeBtn.title = 'Modo: Superposición AR (Pastillas flotantes sobre cristal). Clic para Lector.';
+        modeBtn.removeAttribute('title');
+        modeBtn.setAttribute('data-tip', 'Modo: Superposición AR (Clic para Lector)');
         if (overlayLayer) overlayLayer.style.display = 'block';
         statusText.textContent = 'Modo: Superposición';
         updateOverlayPositions();
       } else {
         modeBtn.innerHTML = ICONS.readerMode;
-        modeBtn.title = 'Modo: Lector (Panel limpio). Clic para DOM Nativo.';
+        modeBtn.removeAttribute('title');
+        modeBtn.setAttribute('data-tip', 'Modo: Lector (Clic para DOM Nativo)');
         if (overlayLayer) overlayLayer.style.display = 'none';
         statusText.textContent = 'Modo: Lector';
+        renderReaderContent(stage.getBoundingClientRect());
       }
     };
+    lens._updateModeUI = updateModeUI;
 
     updateModeUI();
 
@@ -1990,9 +2075,10 @@
         currentMode = 'native';
       }
       updateModeUI();
+      browser.storage?.local?.set({ currentMode });
       lastScannedSignature = '';
       lastVisualOcrSignature = '';
-      scheduleScan(80);
+      scheduleScan(50);
     });
 
     // 10. Desplazamiento y cambio de tamaño de página web
