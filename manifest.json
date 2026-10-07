@@ -72,9 +72,13 @@
   ],
   "background": {
     "scripts": [
+      "lib/tesseract.min.js",
       "js/background.js"
     ],
     "type": "module"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'"
   },
   "options_ui": {
     "page": "pages/options.html",
@@ -98,6 +102,8 @@
         "assets/icon.png",
         "assets/ocr/*",
         "assets/tessdata/*",
+        "lib/*",
+        "lib/langdata/*",
         "src/renderer/styles.css",
         "Fronted embellecedor/ui-pro-max/styles/ui-pro-max.css",
         "Fronted embellecedor/impecable/styles/impeccable.css",

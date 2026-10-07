@@ -3,7 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const LANGS = ['eng'];
+const LANGS = ['eng', 'spa'];
 const OUT = path.join(__dirname, '..', 'assets', 'tessdata');
 
 (async () => {

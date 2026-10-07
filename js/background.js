@@ -105,6 +105,104 @@ browser.runtime.onInstalled.addListener(() => {
   console.log('[Lupa OCR] Extensión inicializada en Mozilla Firefox.');
 });
 
+// ---- Motor OCR local (Tesseract.js empaquetado en lib/) ----
+let ocrWorkerPromise = null;
+let ocrIdleTimer = null;
+const OCR_IDLE_MS = 120000; // liberar memoria tras 2 min sin uso
+
+function getOcrWorker() {
+  if (!ocrWorkerPromise) {
+    const T = globalThis.Tesseract;
+    if (!T) return Promise.reject(new Error('Tesseract.js no está cargado desde lib/.'));
+    ocrWorkerPromise = T.createWorker(['spa', 'eng'], 1, {
+      workerPath: browser.runtime.getURL('lib/worker.min.js'),
+      corePath: browser.runtime.getURL('lib/'),
+      langPath: browser.runtime.getURL('lib/langdata'),
+      workerBlobURL: false,
+      gzip: false,
+      cacheMethod: 'none'
+    }).then(async (worker) => {
+      try {
+        await worker.setParameters({
+          preserve_interword_spaces: '1'
+        });
+      } catch (e) {
+        console.warn('[Lupa Background] Advertencia al configurar parámetros de Tesseract:', e);
+      }
+      return worker;
+    }).catch((err) => {
+      console.error('[Lupa Background] Error iniciando Tesseract OCR:', err);
+      ocrWorkerPromise = null;
+      throw err;
+    });
+  }
+  return ocrWorkerPromise;
+}
+
+function scheduleOcrRelease() {
+  if (ocrIdleTimer) clearTimeout(ocrIdleTimer);
+  ocrIdleTimer = setTimeout(async () => {
+    const p = ocrWorkerPromise;
+    ocrWorkerPromise = null;
+    try { (await p)?.terminate(); } catch (_) { /* ignorar */ }
+  }, OCR_IDLE_MS);
+}
+
+function extractLines(data) {
+  const lines = [];
+  (data?.blocks || []).forEach((b) =>
+    (b.paragraphs || []).forEach((p) =>
+      (p.lines || []).forEach((l) => {
+        const text = (l.text || '').replace(/\s+/g, ' ').trim();
+        // Contar caracteres alfanuméricos reales
+        const alnum = (text.match(/[\p{L}\p{N}]/gu) || []).length;
+        // Contar caracteres extraños/ruido gráfico
+        const junk = (text.match(/[^\p{L}\p{N}\s.,:;¿?¡!'"\-()]/gu) || []).length;
+        // Filtrar ruido de fondos o ropa (exige al menos 2 letras/números y <40% de símbolos raros)
+        if (alnum >= 2 && l.confidence > 28 && (junk / Math.max(1, text.length)) < 0.45) {
+          lines.push({ text, bbox: l.bbox, confidence: l.confidence });
+        }
+      })
+    )
+  );
+  return lines;
+}
+
+function overlapRatio(a, b) {
+  const ix = Math.max(0, Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0));
+  const iy = Math.max(0, Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0));
+  const inter = ix * iy;
+  const areaMin = Math.min((a.x1 - a.x0) * (a.y1 - a.y0), (b.x1 - b.x0) * (b.y1 - b.y0)) || 1;
+  return inter / areaMin;
+}
+
+/**
+ * Reconoce una o varias variantes de la misma imagen (color original + contrastes)
+ * y fusiona las líneas: si dos se solapan, gana la de mayor confianza.
+ */
+async function recognizeImage(dataUrls) {
+  const list = Array.isArray(dataUrls) ? dataUrls : [dataUrls];
+  const worker = await getOcrWorker();
+  try {
+    const merged = [];
+    for (const url of list.filter(Boolean)) {
+      const { data } = await worker.recognize(url, {}, { blocks: true });
+      for (const line of extractLines(data)) {
+        const idx = merged.findIndex((m) => overlapRatio(m.bbox, line.bbox) > 0.45);
+        if (idx === -1) {
+          merged.push(line);
+        } else if (line.confidence > merged[idx].confidence + 5) {
+          merged[idx] = line;
+        }
+      }
+    }
+    merged.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+    return merged.map(({ text, bbox }) => ({ text, bbox }));
+  } finally {
+    scheduleOcrRelease();
+  }
+}
+
 // Manejo de atajos de teclado globales
 browser.commands.onCommand.addListener(async (command) => {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -128,6 +226,16 @@ browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
     browser.tabs.captureVisibleTab(null, { format: 'png' })
       .then((dataUrl) => sendResponse({ success: true, dataUrl }))
       .catch((err) => sendResponse({ success: false, error: err.message }));
+    return true;
+  }
+
+  if (message.action === 'OCR_IMAGE') {
+    recognizeImage(message.dataUrls || message.dataUrl)
+      .then((lines) => sendResponse({ success: true, lines }))
+      .catch((err) => {
+        console.error('[Lupa Background] Error OCR:', err);
+        sendResponse({ success: false, error: String(err?.message || err), lines: [] });
+      });
     return true;
   }
 });

@@ -81,8 +81,8 @@
         inset: 0;
         border-radius: var(--r);
         background: rgba(var(--glass-rgb), var(--glass));
-        backdrop-filter: blur(4px) saturate(130%);
-        -webkit-backdrop-filter: blur(4px) saturate(130%);
+        backdrop-filter: saturate(120%);
+        -webkit-backdrop-filter: saturate(120%);
         box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.45);
         transition: background 0.15s ease;
       }
@@ -432,29 +432,79 @@
   /**
    * Mejora 3: OCR Visual de Pantalla cuando no hay texto DOM o a petición
    */
-  async function performVisualOCR(stageRect) {
+  let isVisualOcrRunning = false;
+  let lastVisualOcrSignature = '';
+
+  const nextFrame = () => new Promise((r) => requestAnimationFrame(() => r()));
+
+  /**
+   * Genera las variantes para OCR:
+   * 1. Imagen a color original limpia (Leptonica de Tesseract realiza umbralización adaptativa en color).
+   * 2. Variante invertida de alto contraste (para textos blancos o claros sobre botones de color).
+   */
+  function buildOcrVariants(canvas) {
+    const original = canvas.toDataURL('image/png');
+    try {
+      const ctx = canvas.getContext('2d');
+      const { width, height } = canvas;
+      const img = ctx.getImageData(0, 0, width, height);
+      const d = img.data;
+      const gray = new Uint8ClampedArray(width * height);
+      let min = 255, max = 0;
+      for (let i = 0, p = 0; i < d.length; i += 4, p++) {
+        const g = (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114) | 0;
+        gray[p] = g;
+        if (g < min) min = g;
+        if (g > max) max = g;
+      }
+      const range = Math.max(1, max - min);
+      const inverted = new ImageData(width, height);
+      for (let p = 0, i = 0; p < gray.length; p++, i += 4) {
+        const v = ((gray[p] - min) * 255 / range) | 0;
+        inverted.data[i] = inverted.data[i + 1] = inverted.data[i + 2] = 255 - v;
+        inverted.data[i + 3] = 255;
+      }
+      const out = document.createElement('canvas');
+      out.width = width;
+      out.height = height;
+      const octx = out.getContext('2d');
+      octx.putImageData(inverted, 0, 0);
+      return [original, out.toDataURL('image/png')];
+    } catch (_) {
+      return [original];
+    }
+  }
+
+  async function performVisualOCR(stageRect, { force = true } = {}) {
     const wrapper = shadowRoot?.getElementById('lupa-wrapper');
     const lens = shadowRoot?.getElementById('lens');
     const statusText = shadowRoot?.getElementById('statusText');
-    const overlayLayer = shadowRoot?.getElementById('overlayLayer');
 
-    if (!wrapper || !lens) return;
+    if (!wrapper || !lens || isVisualOcrRunning) return;
 
+    // Evitar repetir OCR automático sobre la misma zona sin cambios
+    const sig = `${Math.round(stageRect.left)},${Math.round(stageRect.top)},${Math.round(stageRect.width)},${Math.round(stageRect.height)},${Math.round(window.scrollX)},${Math.round(window.scrollY)}::${targetLang}::${currentMode}`;
+    if (!force && sig === lastVisualOcrSignature) return;
+    lastVisualOcrSignature = sig;
+
+    isVisualOcrRunning = true;
+    let finalStatus = 'Lista';
     statusText.textContent = 'Capturando OCR...';
     lens.dataset.busy = '1';
     lens.dataset.state = 'busy';
 
     try {
-      // Ocultar temporalmente el marco para capturar el contenido limpio detrás
+      // Ocultar el marco y esperar a que el navegador repinte antes de capturar
       wrapper.style.visibility = 'hidden';
+      await nextFrame();
+      await nextFrame();
       const capRes = await browser.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
       wrapper.style.visibility = 'visible';
 
-      if (!capRes || !capRes.dataUrl) throw new Error('No se pudo capturar la pestaña.');
+      if (!capRes || !capRes.dataUrl) throw new Error(capRes?.error || 'No se pudo capturar la pestaña.');
 
       statusText.textContent = 'Procesando imagen...';
 
-      // Cargar recorte en Canvas
       const img = new Image();
       await new Promise((res, rej) => {
         img.onload = res;
@@ -462,58 +512,77 @@
         img.src = capRes.dataUrl;
       });
 
-      const dpr = window.devicePixelRatio || 1;
+      // Escala real captura/viewport (más fiable que devicePixelRatio con zoom)
+      const capScale = img.naturalWidth / window.innerWidth || window.devicePixelRatio || 1;
+      // Ampliar texto pequeño: Tesseract rinde mejor con ~2x
+      const upscale = Math.max(1, 2 / capScale);
+      const srcW = Math.max(1, Math.round(stageRect.width * capScale));
+      const srcH = Math.max(1, Math.round(stageRect.height * capScale));
       const cropCanvas = document.createElement('canvas');
-      const cropW = Math.max(1, Math.round(stageRect.width * dpr));
-      const cropH = Math.max(1, Math.round(stageRect.height * dpr));
-      cropCanvas.width = cropW;
-      cropCanvas.height = cropH;
+      cropCanvas.width = Math.round(srcW * upscale);
+      cropCanvas.height = Math.round(srcH * upscale);
 
       const ctx = cropCanvas.getContext('2d');
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(
         img,
-        Math.round(stageRect.left * dpr),
-        Math.round(stageRect.top * dpr),
-        cropW,
-        cropH,
+        Math.round(stageRect.left * capScale),
+        Math.round(stageRect.top * capScale),
+        srcW,
+        srcH,
         0,
         0,
-        cropW,
-        cropH
+        cropCanvas.width,
+        cropCanvas.height
       );
 
-      // Si Tesseract local está disponible en el entorno
-      if (window.Tesseract) {
-        statusText.textContent = 'Leyendo OCR...';
-        const ocrResult = await window.Tesseract.recognize(cropCanvas, 'eng+spa', {
-          workerPath: browser.runtime.getURL('assets/ocr/worker.min.js'),
-          corePath: browser.runtime.getURL('assets/ocr/tesseract-core.wasm.js')
+      statusText.textContent = 'Leyendo OCR...';
+      const ocrRes = await browser.runtime.sendMessage({
+        action: 'OCR_IMAGE',
+        dataUrls: buildOcrVariants(cropCanvas)
+      });
+      if (!ocrRes?.success) throw new Error(ocrRes?.error || 'Falló el motor OCR.');
+
+      const k = capScale * upscale;
+      const lines = ocrRes.lines || [];
+      if (lines.length > 0) {
+        const items = lines.map((line) => {
+          const h = (line.bbox.y1 - line.bbox.y0) / k;
+          return {
+            text: line.text,
+            x: line.bbox.x0 / k,
+            y: line.bbox.y0 / k,
+            w: (line.bbox.x1 - line.bbox.x0) / k,
+            h,
+            fontSize: `${Math.max(11, Math.min(28, Math.round(h * 0.8)))}px`
+          };
         });
-
-        const lines = (ocrResult?.data?.lines || []).filter((l) => l.text.trim().length > 1);
-        if (lines.length > 0) {
-          const items = lines.map((line) => ({
-            text: line.text.trim(),
-            x: line.bbox.x0 / dpr,
-            y: line.bbox.y0 / dpr,
-            w: (line.bbox.x1 - line.bbox.x0) / dpr,
-            h: (line.bbox.y1 - line.bbox.y0) / dpr,
-            fontSize: '13px'
-          }));
-
-          await translateAndDisplay(items, stageRect);
-          return;
-        }
+        await translateAndDisplay(items, stageRect);
+        return;
       }
 
-      statusText.textContent = 'Sin texto en imagen';
+      finalStatus = 'Sin texto en imagen';
+      const readerEl = shadowRoot?.getElementById('reader');
+      if (currentMode === 'reader' && readerEl) {
+        readerEl.innerHTML = '<div style="color:#94a3b8;padding:14px;">No se encontró texto legible bajo la lente.</div>';
+      }
     } catch (err) {
-      console.warn('[Lupa OCR] Falló captura OCR:', err.message);
+      console.warn('[Lupa OCR] Falló captura OCR:', err?.message || err);
       wrapper.style.visibility = 'visible';
+      lens.dataset.state = 'error';
+      finalStatus = 'Error OCR';
     } finally {
+      isVisualOcrRunning = false;
       lens.dataset.busy = '0';
-      lens.dataset.state = 'idle';
-      statusText.textContent = 'Lista';
+      if (finalStatus !== 'Lista') {
+        statusText.textContent = finalStatus;
+        setTimeout(() => {
+          if (!isPaused && !isScanning && !isVisualOcrRunning) {
+            lens.dataset.state = 'idle';
+            statusText.textContent = 'Lista';
+          }
+        }, 2500);
+      }
     }
   }
 
@@ -585,7 +654,7 @@
   }
 
   async function performScanAndTranslate() {
-    if (!shadowRoot || !isLensActive || isPaused || isScanning) return;
+    if (!shadowRoot || !isLensActive || isPaused || isScanning || isVisualOcrRunning) return;
 
     const lens = shadowRoot.getElementById('lens');
     const stage = shadowRoot.getElementById('stage');
@@ -602,9 +671,12 @@
 
     if (items.length === 0) {
       overlayLayer.innerHTML = '';
+      lastScannedSignature = '';
       if (currentMode === 'reader') {
-        reader.innerHTML = '<div style="color:#94a3b8;padding:14px;">Mueve la lente sobre texto o pulsa el icono de cámara para OCR visual.</div>';
+        reader.innerHTML = '<div style="color:#94a3b8;padding:14px;">Buscando texto en la imagen…</div>';
       }
+      // Sin texto en el DOM (imágenes, canvas, vídeo): intentar OCR visual automático
+      performVisualOCR(stageRect, { force: false });
       return;
     }
 
