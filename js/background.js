@@ -1,10 +1,11 @@
 /**
  * Background Service / Event Script para Firefox WebExtension
  * Lupa OCR Transparente en Tiempo Real
+ * Motor de Traducción con Detección Automática, Caché y Orquestador de OCR
  */
 
 const translationCache = new Map();
-const MAX_CACHE_SIZE = 2000;
+const MAX_CACHE_SIZE = 3000;
 
 function getCacheKey(text, from, to) {
   return `${from}->${to}::${text.trim()}`;
@@ -14,6 +15,7 @@ async function translateBatchGoogle(texts, from = 'auto', to = 'es') {
   const uncachedIndices = [];
   const uncachedTexts = [];
   const results = new Array(texts.length);
+  let detectedLang = null;
 
   for (let i = 0; i < texts.length; i++) {
     const key = getCacheKey(texts[i], from, to);
@@ -26,11 +28,11 @@ async function translateBatchGoogle(texts, from = 'auto', to = 'es') {
   }
 
   if (uncachedTexts.length === 0) {
-    return results;
+    return { translations: results, detectedLang };
   }
 
   try {
-    // 1. Intento por lotes (Google Translate público)
+    // 1. Endpoint por lotes (Google Translate dict-chrome-ex)
     const url = `https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=${encodeURIComponent(from)}&tl=${encodeURIComponent(to)}&dt=t&ie=UTF-8&oe=UTF-8`;
     const body = uncachedTexts.map((t) => 'q=' + encodeURIComponent(t)).join('&');
 
@@ -44,11 +46,18 @@ async function translateBatchGoogle(texts, from = 'auto', to = 'es') {
       const data = await res.json();
       if (Array.isArray(data)) {
         data.forEach((item, idx) => {
-          const transText = Array.isArray(item) ? String(item[0] ?? uncachedTexts[idx]) : String(item ?? uncachedTexts[idx]);
+          let transText = uncachedTexts[idx];
+          if (Array.isArray(item)) {
+            transText = String(item[0] ?? uncachedTexts[idx]);
+            if (item[1] && !detectedLang) detectedLang = String(item[1]).toLowerCase();
+          } else {
+            transText = String(item ?? uncachedTexts[idx]);
+          }
+
           const origIdx = uncachedIndices[idx];
           results[origIdx] = transText;
 
-          // Guardar en caché
+          // Guardar en caché LRU
           const key = getCacheKey(uncachedTexts[idx], from, to);
           if (translationCache.size >= MAX_CACHE_SIZE) {
             const firstKey = translationCache.keys().next().value;
@@ -56,11 +65,12 @@ async function translateBatchGoogle(texts, from = 'auto', to = 'es') {
           }
           translationCache.set(key, transText);
         });
-        return results;
+
+        return { translations: results, detectedLang };
       }
     }
   } catch (err) {
-    console.warn('[Lupa Background] Falló google-batch, reintentando con endpoint GTX:', err.message);
+    console.warn('[Lupa Background] Falló google-batch, usando respaldo GTX:', err.message);
   }
 
   // 2. Respaldo individual GTX
@@ -73,6 +83,7 @@ async function translateBatchGoogle(texts, from = 'auto', to = 'es') {
         if (r.ok) {
           const j = await r.json();
           const translated = (j[0] || []).map((part) => part[0]).join('') || text;
+          if (j[2] && !detectedLang) detectedLang = String(j[2]).toLowerCase();
           results[origIdx] = translated;
           translationCache.set(getCacheKey(text, from, to), translated);
         } else {
@@ -87,29 +98,29 @@ async function translateBatchGoogle(texts, from = 'auto', to = 'es') {
     });
   }
 
-  return results;
+  return { translations: results, detectedLang };
 }
 
 browser.runtime.onInstalled.addListener(() => {
-  console.log('[Lupa OCR] Extensión instalada con éxito.');
+  console.log('[Lupa OCR] Extensión inicializada en Mozilla Firefox.');
 });
 
-// Manejo de atajos de teclado declarados en manifest.json
+// Manejo de atajos de teclado globales
 browser.commands.onCommand.addListener(async (command) => {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (!tab || !tab.id) return;
 
   browser.tabs.sendMessage(tab.id, { action: 'COMMAND', command }).catch((err) => {
-    console.warn('[Lupa OCR] Pestaña no lista para recibir mensajes:', err.message);
+    console.warn('[Lupa OCR] Error enviando comando a la pestaña:', err.message);
   });
 });
 
-// Enrutador de mensajes
+// Enrutador de mensajería
 browser.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'TRANSLATE_TEXTS') {
     translateBatchGoogle(message.texts, message.from || 'auto', message.to || 'es')
-      .then((translations) => sendResponse({ success: true, translations }))
-      .catch((err) => sendResponse({ success: false, error: err.message, translations: message.texts }));
+      .then((res) => sendResponse({ success: true, translations: res.translations, detectedLang: res.detectedLang }))
+      .catch((err) => sendResponse({ success: false, error: err.message, translations: message.texts, detectedLang: null }));
     return true; // Asíncrono
   }
 

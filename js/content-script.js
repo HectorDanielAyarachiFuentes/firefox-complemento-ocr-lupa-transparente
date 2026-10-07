@@ -1,6 +1,8 @@
 /**
  * Content Script para Firefox WebExtension
- * Lupa OCR Transparente — Inyección del overlay en Shadow DOM, click-through y traducción en vivo
+ * Lupa OCR Transparente en Tiempo Real
+ * Características: Agrupamiento Semántico de Frases, Detección de Idioma en Vivo,
+ * Superposición Exacta, Modo Lectura y Fallback OCR Visual con Captura de Pantalla.
  */
 
 (() => {
@@ -16,8 +18,9 @@
   let currentMode = 'overlay'; // 'overlay' | 'reader'
   let sourceLang = 'auto';
   let targetLang = 'es';
+  let detectedSourceLang = null;
   let scanDebounceTimer = null;
-  let lastScannedTextSignature = '';
+  let lastScannedSignature = '';
 
   const ICONS = {
     logo: `<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><defs><linearGradient id="lupa-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#79a6ff"/><stop offset="1" stop-color="#b79bff"/></linearGradient></defs><circle cx="10.5" cy="10.5" r="7" stroke="url(#lupa-grad)" stroke-width="2.2"/><path d="M15.8 15.8 21 21" stroke="url(#lupa-grad)" stroke-width="2.6"/><path d="M7.6 9.3h5.8M7.6 12h4" stroke="#eaf0ff" stroke-width="1.7"/></svg>`,
@@ -29,7 +32,7 @@
     lensMode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8.5h8M7 12h10M7 15.5h6"/></svg>`,
     readerMode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 6h16M4 10.5h16M4 15h10M4 19.5h7"/></svg>`,
     arrow: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`,
-    settings: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3"/><path d="M14 2v4M8 10v4M16 18v4"/></svg>`
+    camera: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`
   };
 
   function createLensDOM() {
@@ -41,7 +44,7 @@
 
     shadowRoot = hostEl.attachShadow({ mode: 'open' });
 
-    // Estilos embebidos directos para garantizar renderizado y transparencia perfecta inmediata
+    // Estilos embebidos directos en Shadow DOM
     const baseStyle = document.createElement('style');
     baseStyle.textContent = `
       :host, #lupa-wrapper, .lens {
@@ -136,6 +139,7 @@
         color: var(--ink);
         font-size: 12px; font-weight: 600;
         cursor: pointer;
+        transition: background 0.15s;
       }
       .chip:hover { background: rgba(255, 255, 255, 0.14); }
       #targetLabel { color: var(--accent); }
@@ -149,6 +153,7 @@
         transition: all 0.15s ease;
       }
       .tool:hover { background: var(--panel-hi); color: #fff; }
+      .tool.active { background: rgba(121, 166, 255, 0.25); color: var(--accent); }
       .tool-close:hover { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
 
       .progress {
@@ -175,8 +180,8 @@
       .blk {
         position: absolute;
         border-radius: 4px;
-        padding: 2px 6px;
-        line-height: 1.25;
+        padding: 3px 7px;
+        line-height: 1.35;
         font-family: var(--ui-font);
         background: rgba(10, 14, 26, 0.94);
         color: #f8fafc;
@@ -186,6 +191,12 @@
         font-size: 13px;
         word-break: break-word;
         animation: pop-in 0.15s ease-out;
+        z-index: 5;
+      }
+      .blk:hover {
+        background: rgba(15, 23, 42, 0.98);
+        border-color: rgba(121, 166, 255, 0.8);
+        z-index: 8;
       }
       @keyframes pop-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; } }
 
@@ -248,7 +259,7 @@
           </div>
 
           <button id="langBtn" class="chip" title="Idioma original" type="button">
-            <span id="langLabel">${sourceLang.toUpperCase()}</span>
+            <span id="langLabel">${sourceLang === 'auto' && detectedSourceLang ? detectedSourceLang.toUpperCase() : sourceLang.toUpperCase()}</span>
             <span class="arrow">${ICONS.arrow}</span>
             <span id="targetLabel">${targetLang.toUpperCase()}</span>
           </button>
@@ -256,9 +267,10 @@
           <div class="spacer" id="spacer" data-drag style="flex:1;cursor:move;height:100%;"></div>
 
           <div class="tools">
-            <button id="modeBtn" class="tool" type="button" title="Cambiar vista (Superposición / Lector)">${ICONS.lensMode}</button>
-            <button id="opacityBtn" class="tool" type="button" title="Transparencia">${ICONS.droplet}</button>
-            <button id="pauseBtn" class="tool" type="button" title="Pausar / Reanudar lectura">${ICONS.pause}</button>
+            <button id="modeBtn" class="tool" type="button" title="Alternar vista (Lente / Lector)">${ICONS.lensMode}</button>
+            <button id="ocrVisualBtn" class="tool" type="button" title="Forzar OCR Visual de Imagen/Pantalla">${ICONS.camera}</button>
+            <button id="opacityBtn" class="tool" type="button" title="Transparencia del cristal">${ICONS.droplet}</button>
+            <button id="pauseBtn" class="tool" type="button" title="Pausar / Reanudar escaneo">${ICONS.pause}</button>
             <button id="refreshBtn" class="tool" type="button" title="Traducir ahora">${ICONS.refresh}</button>
             <button id="closeBtn" class="tool tool-close" type="button" title="Cerrar Lupa">${ICONS.close}</button>
           </div>
@@ -266,7 +278,7 @@
 
         <div class="progress" id="progress"></div>
 
-        <!-- Área de visualización transparente -->
+        <!-- Escenario de visualización transparente -->
         <main id="stage" class="stage">
           <div id="overlayLayer" class="overlay-layer"></div>
           <article id="reader" class="reader" hidden></article>
@@ -295,7 +307,7 @@
         <div id="langMenu" class="pop" hidden>
           <div class="pop-title">Idioma del texto original</div>
           <div id="langList" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-            <button class="seg-btn" data-lang="auto">Auto</button>
+            <button class="seg-btn" data-lang="auto">Auto (Detectar)</button>
             <button class="seg-btn" data-lang="en">Inglés</button>
             <button class="seg-btn" data-lang="es">Español</button>
             <button class="seg-btn" data-lang="fr">Francés</button>
@@ -311,7 +323,7 @@
 
     setupLensInteractions(wrapper, shadowRoot);
 
-    // Cargar configuración guardada de usuario
+    // Cargar y aplicar configuración guardada de usuario
     browser.storage?.local?.get(['targetLang', 'defaultOpacity']).then((cfg) => {
       if (cfg?.targetLang) {
         targetLang = cfg.targetLang;
@@ -329,13 +341,49 @@
       }
     });
 
-    // Disparar escaneo inicial
     scheduleScan(300);
   }
 
-  // Escaneo y extracción de texto bajo el área de la lente
+  /**
+   * Mejora 1: Agrupamiento Semántico de Frases (Smart Sentence Grouping)
+   * Agrupa nodos de texto contiguos en la misma línea para traducir oraciones completas y fluidas.
+   */
+  function groupAdjacentItems(rawItems) {
+    if (rawItems.length === 0) return [];
+
+    // Ordenar de arriba a abajo y de izquierda a derecha
+    rawItems.sort((a, b) => {
+      const lineDiff = a.y - b.y;
+      if (Math.abs(lineDiff) > 8) return lineDiff;
+      return a.x - b.x;
+    });
+
+    const grouped = [];
+    let current = { ...rawItems[0] };
+
+    for (let i = 1; i < rawItems.length; i++) {
+      const item = rawItems[i];
+      const sameLine = Math.abs(item.y - current.y) < Math.max(item.h, current.h) * 0.6;
+      const nearbyX = item.x - (current.x + current.w) < 40 && item.x >= current.x;
+
+      if (sameLine && nearbyX) {
+        // Unir a la misma frase
+        current.text += ' ' + item.text;
+        const right = Math.max(current.x + current.w, item.x + item.w);
+        const bottom = Math.max(current.y + current.h, item.y + item.h);
+        current.w = right - current.x;
+        current.h = bottom - current.y;
+      } else {
+        grouped.push(current);
+        current = { ...item };
+      }
+    }
+    grouped.push(current);
+    return grouped;
+  }
+
   function findTextUnderLens(stageRect) {
-    const items = [];
+    const rawItems = [];
     const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, {
       acceptNode(node) {
         if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
@@ -355,17 +403,15 @@
       range.selectNodeContents(node);
       const rect = range.getBoundingClientRect();
 
-      // Verificar intersección con el rectángulo de la lente
       if (
         rect.width > 2 && rect.height > 2 &&
         rect.left < stageRect.right && rect.right > stageRect.left &&
         rect.top < stageRect.bottom && rect.bottom > stageRect.top
       ) {
         const text = node.nodeValue.trim();
-        // Omitir números sueltos o puntuación irrelevante
         if (text.length > 0 && !/^[\s\d.,;:\-_/\\|+*=&%#@!?()\[\]{}'"]+$/.test(text)) {
           const compStyle = window.getComputedStyle(node.parentElement);
-          items.push({
+          rawItems.push({
             text,
             x: Math.max(0, rect.left - stageRect.left),
             y: Math.max(0, rect.top - stageRect.top),
@@ -376,39 +422,105 @@
         }
       }
     }
-    return items;
+
+    // Aplicar agrupación inteligente
+    return groupAdjacentItems(rawItems);
   }
 
-  async function performScanAndTranslate() {
-    if (!shadowRoot || !isLensActive || isPaused || isScanning) return;
+  /**
+   * Mejora 3: OCR Visual de Pantalla cuando no hay texto DOM o a petición
+   */
+  async function performVisualOCR(stageRect) {
+    const wrapper = shadowRoot?.getElementById('lupa-wrapper');
+    const lens = shadowRoot?.getElementById('lens');
+    const statusText = shadowRoot?.getElementById('statusText');
+    const overlayLayer = shadowRoot?.getElementById('overlayLayer');
 
+    if (!wrapper || !lens) return;
+
+    statusText.textContent = 'Capturando OCR...';
+    lens.dataset.busy = '1';
+    lens.dataset.state = 'busy';
+
+    try {
+      // Ocultar temporalmente el marco para capturar el contenido limpio detrás
+      wrapper.style.visibility = 'hidden';
+      const capRes = await browser.runtime.sendMessage({ action: 'CAPTURE_VISIBLE_TAB' });
+      wrapper.style.visibility = 'visible';
+
+      if (!capRes || !capRes.dataUrl) throw new Error('No se pudo capturar la pestaña.');
+
+      statusText.textContent = 'Procesando imagen...';
+
+      // Cargar recorte en Canvas
+      const img = new Image();
+      await new Promise((res, rej) => {
+        img.onload = res;
+        img.onerror = rej;
+        img.src = capRes.dataUrl;
+      });
+
+      const dpr = window.devicePixelRatio || 1;
+      const cropCanvas = document.createElement('canvas');
+      const cropW = Math.max(1, Math.round(stageRect.width * dpr));
+      const cropH = Math.max(1, Math.round(stageRect.height * dpr));
+      cropCanvas.width = cropW;
+      cropCanvas.height = cropH;
+
+      const ctx = cropCanvas.getContext('2d');
+      ctx.drawImage(
+        img,
+        Math.round(stageRect.left * dpr),
+        Math.round(stageRect.top * dpr),
+        cropW,
+        cropH,
+        0,
+        0,
+        cropW,
+        cropH
+      );
+
+      // Si Tesseract local está disponible en el entorno
+      if (window.Tesseract) {
+        statusText.textContent = 'Leyendo OCR...';
+        const ocrResult = await window.Tesseract.recognize(cropCanvas, 'eng+spa', {
+          workerPath: browser.runtime.getURL('assets/ocr/worker.min.js'),
+          corePath: browser.runtime.getURL('assets/ocr/tesseract-core.wasm.js')
+        });
+
+        const lines = (ocrResult?.data?.lines || []).filter((l) => l.text.trim().length > 1);
+        if (lines.length > 0) {
+          const items = lines.map((line) => ({
+            text: line.text.trim(),
+            x: line.bbox.x0 / dpr,
+            y: line.bbox.y0 / dpr,
+            w: (line.bbox.x1 - line.bbox.x0) / dpr,
+            h: (line.bbox.y1 - line.bbox.y0) / dpr,
+            fontSize: '13px'
+          }));
+
+          await translateAndDisplay(items, stageRect);
+          return;
+        }
+      }
+
+      statusText.textContent = 'Sin texto en imagen';
+    } catch (err) {
+      console.warn('[Lupa OCR] Falló captura OCR:', err.message);
+      wrapper.style.visibility = 'visible';
+    } finally {
+      lens.dataset.busy = '0';
+      lens.dataset.state = 'idle';
+      statusText.textContent = 'Lista';
+    }
+  }
+
+  async function translateAndDisplay(items, stageRect) {
     const lens = shadowRoot.getElementById('lens');
-    const stage = shadowRoot.getElementById('stage');
     const statusText = shadowRoot.getElementById('statusText');
     const overlayLayer = shadowRoot.getElementById('overlayLayer');
     const reader = shadowRoot.getElementById('reader');
-
-    if (!stage || !lens) return;
-
-    const stageRect = stage.getBoundingClientRect();
-    if (stageRect.width < 50 || stageRect.height < 50) return;
-
-    // 1. Extraer texto visible bajo la lente
-    const items = findTextUnderLens(stageRect);
-
-    if (items.length === 0) {
-      overlayLayer.innerHTML = '';
-      if (currentMode === 'reader') {
-        reader.innerHTML = '<div style="color:#94a3b8;padding:12px;">Mueve la lente sobre un texto para traducirlo aquí.</div>';
-      }
-      return;
-    }
-
-    // Comprobar si el texto ya fue traducido recientemente para evitar parpadeos
-    const currentSignature = items.map((it) => it.text).join('||') + `::${targetLang}`;
-    if (currentSignature === lastScannedTextSignature) {
-      return;
-    }
+    const langLabel = shadowRoot.getElementById('langLabel');
 
     isScanning = true;
     lens.dataset.busy = '1';
@@ -416,7 +528,6 @@
     statusText.textContent = 'Traduciendo...';
 
     try {
-      // 2. Enviar textos a traducir al background script
       const textsToTranslate = items.map((it) => it.text);
       const res = await browser.runtime.sendMessage({
         action: 'TRANSLATE_TEXTS',
@@ -426,10 +537,16 @@
       });
 
       if (res && res.translations) {
-        lastScannedTextSignature = currentSignature;
+        // Mejora 2: Detección dinámica de idioma origen
+        if (res.detectedLang) {
+          detectedSourceLang = res.detectedLang;
+          if (sourceLang === 'auto' && langLabel) {
+            langLabel.textContent = detectedSourceLang.toUpperCase();
+            langLabel.title = `Detectado automáticamente: ${detectedSourceLang.toUpperCase()}`;
+          }
+        }
 
         if (currentMode === 'overlay') {
-          // Renderizar parches traducidos exactamente sobre el original
           overlayLayer.innerHTML = '';
           res.translations.forEach((translatedText, i) => {
             const it = items[i];
@@ -438,15 +555,16 @@
             blk.textContent = translatedText;
             blk.style.left = `${it.x}px`;
             blk.style.top = `${it.y}px`;
-            blk.style.maxWidth = `${Math.min(it.w * 1.4, stageRect.width - it.x - 12)}px`;
+            blk.style.maxWidth = `${Math.min(it.w * 1.5 + 20, stageRect.width - it.x - 12)}px`;
             blk.style.fontSize = it.fontSize;
             overlayLayer.appendChild(blk);
           });
         } else {
-          // Modo lector
-          reader.innerHTML = `<div style="padding:14px;color:#f1f5f9;">
-            <div style="font-weight:700;margin-bottom:12px;color:#79a6ff;font-size:12px;text-transform:uppercase;">Traducción al ${targetLang.toUpperCase()}</div>
-            ${res.translations.map((t) => `<p style="margin:0 0 10px 0;line-height:1.5;">${escapeHtml(t)}</p>`).join('')}
+          reader.innerHTML = `<div style="padding:16px;color:#f1f5f9;">
+            <div style="font-weight:700;margin-bottom:12px;color:#79a6ff;font-size:12px;text-transform:uppercase;">
+              Traducción (${(detectedSourceLang || sourceLang).toUpperCase()} → ${targetLang.toUpperCase()})
+            </div>
+            ${res.translations.map((t) => `<p style="margin:0 0 12px 0;line-height:1.55;">${escapeHtml(t)}</p>`).join('')}
           </div>`;
         }
       }
@@ -462,6 +580,37 @@
         statusText.textContent = 'Lista';
       }
     }
+  }
+
+  async function performScanAndTranslate() {
+    if (!shadowRoot || !isLensActive || isPaused || isScanning) return;
+
+    const lens = shadowRoot.getElementById('lens');
+    const stage = shadowRoot.getElementById('stage');
+    const overlayLayer = shadowRoot.getElementById('overlayLayer');
+    const reader = shadowRoot.getElementById('reader');
+
+    if (!stage || !lens) return;
+
+    const stageRect = stage.getBoundingClientRect();
+    if (stageRect.width < 50 || stageRect.height < 50) return;
+
+    // 1. Extraer texto visible bajo la lente con agrupamiento de oraciones
+    const items = findTextUnderLens(stageRect);
+
+    if (items.length === 0) {
+      overlayLayer.innerHTML = '';
+      if (currentMode === 'reader') {
+        reader.innerHTML = '<div style="color:#94a3b8;padding:14px;">Mueve la lente sobre texto o pulsa el icono de cámara para OCR visual.</div>';
+      }
+      return;
+    }
+
+    const currentSignature = items.map((it) => it.text).join('||') + `::${targetLang}::${sourceLang}`;
+    if (currentSignature === lastScannedSignature) return;
+    lastScannedSignature = currentSignature;
+
+    await translateAndDisplay(items, stageRect);
   }
 
   function scheduleScan(ms = 350) {
@@ -487,10 +636,12 @@
     const langMenu = root.getElementById('langMenu');
     const pauseBtn = root.getElementById('pauseBtn');
     const refreshBtn = root.getElementById('refreshBtn');
+    const ocrVisualBtn = root.getElementById('ocrVisualBtn');
     const modeBtn = root.getElementById('modeBtn');
     const statusText = root.getElementById('statusText');
     const lens = root.getElementById('lens');
     const reader = root.getElementById('reader');
+    const stage = root.getElementById('stage');
 
     // 1. Mover la lente (Drag)
     let isDragging = false;
@@ -593,9 +744,10 @@
     root.querySelectorAll('#langList button').forEach((btn) => {
       btn.addEventListener('click', () => {
         sourceLang = btn.dataset.lang;
+        detectedSourceLang = null;
         root.getElementById('langLabel').textContent = sourceLang.toUpperCase();
         langMenu.hidden = true;
-        lastScannedTextSignature = '';
+        lastScannedSignature = '';
         scheduleScan(100);
       });
     });
@@ -617,21 +769,26 @@
 
     // 7. Botón Forzar Traducción
     refreshBtn.addEventListener('click', () => {
-      lastScannedTextSignature = '';
+      lastScannedSignature = '';
       performScanAndTranslate();
     });
 
-    // 8. Cambiar Modo (Lente / Lector)
+    // 8. Botón OCR Visual (Captura de Imagen)
+    ocrVisualBtn?.addEventListener('click', () => {
+      performVisualOCR(stage.getBoundingClientRect());
+    });
+
+    // 9. Cambiar Modo (Lente / Lector)
     modeBtn.addEventListener('click', () => {
       currentMode = currentMode === 'overlay' ? 'reader' : 'overlay';
       lens.dataset.mode = currentMode;
       modeBtn.innerHTML = currentMode === 'overlay' ? ICONS.lensMode : ICONS.readerMode;
       reader.hidden = currentMode !== 'reader';
-      lastScannedTextSignature = '';
+      lastScannedSignature = '';
       scheduleScan(100);
     });
 
-    // 9. Reaccionar al scroll de la página web
+    // 10. Desplazamiento de página web
     window.addEventListener('scroll', () => {
       if (isLensActive && !isPaused) {
         scheduleScan(450);
@@ -644,7 +801,7 @@
     if (hostEl) {
       hostEl.style.display = 'block';
       isLensActive = true;
-      lastScannedTextSignature = '';
+      lastScannedSignature = '';
       scheduleScan(200);
     }
   }
@@ -681,7 +838,7 @@
     }
 
     if (message.action === 'COMMAND' && message.command === 'translate-now') {
-      lastScannedTextSignature = '';
+      lastScannedSignature = '';
       performScanAndTranslate();
       return;
     }

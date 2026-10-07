@@ -96,6 +96,8 @@
       "resources": [
         "assets/icon.svg",
         "assets/icon.png",
+        "assets/ocr/*",
+        "assets/tessdata/*",
         "src/renderer/styles.css",
         "Fronted embellecedor/ui-pro-max/styles/ui-pro-max.css",
         "Fronted embellecedor/impecable/styles/impeccable.css",
