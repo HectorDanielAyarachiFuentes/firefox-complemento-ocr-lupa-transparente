@@ -177,6 +177,7 @@
         overflow: hidden;
       }
       .overlay-layer { position: absolute; inset: 0; pointer-events: none; }
+      .lens[data-mode="reader"] .overlay-layer { display: none; }
       .blk {
         position: absolute;
         border-radius: 4px;
@@ -202,6 +203,7 @@
 
       .reader {
         position: absolute; inset: 0;
+        z-index: 9;
         background: rgba(10, 14, 26, 0.96);
         color: var(--ink);
         padding: 16px;
@@ -784,6 +786,9 @@
       lens.dataset.mode = currentMode;
       modeBtn.innerHTML = currentMode === 'overlay' ? ICONS.lensMode : ICONS.readerMode;
       reader.hidden = currentMode !== 'reader';
+      // Limpiar ambas capas para que no queden restos de la vista anterior
+      root.getElementById('overlayLayer').innerHTML = '';
+      if (currentMode !== 'reader') reader.innerHTML = '';
       lastScannedSignature = '';
       scheduleScan(100);
     });
