@@ -64,6 +64,10 @@
     }
   }
 
+  let preferredDockPos = 'auto'; // 'auto' | 'right' | 'left' | 'inside-right' | 'inside-left' | 'top' | 'bottom'
+  let activeDockPos = 'right';
+  let isDockCollapsed = false;
+
   const ICONS = {
     logo: `<svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><defs><linearGradient id="lupa-grad" x1="2" y1="2" x2="22" y2="22" gradientUnits="userSpaceOnUse"><stop stop-color="#79a6ff"/><stop offset="1" stop-color="#b79bff"/></linearGradient></defs><circle cx="10.5" cy="10.5" r="7" stroke="url(#lupa-grad)" stroke-width="2.2"/><path d="M15.8 15.8 21 21" stroke="url(#lupa-grad)" stroke-width="2.6"/><path d="M7.6 9.3h5.8M7.6 12h4" stroke="#eaf0ff" stroke-width="1.7"/></svg>`,
     close: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18M6 6l12 12"/></svg>`,
@@ -75,7 +79,11 @@
     lensMode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2"/><path d="M7 8.5h8M7 12h10M7 15.5h6"/></svg>`,
     readerMode: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M4 6h16M4 10.5h16M4 15h10M4 19.5h7"/></svg>`,
     arrow: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="12" height="12"><path d="M5 12h14M13 6l6 6-6 6"/></svg>`,
-    camera: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`
+    camera: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>`,
+    dragGrip: `<svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16"><circle cx="8" cy="6" r="1.6"/><circle cx="16" cy="6" r="1.6"/><circle cx="8" cy="12" r="1.6"/><circle cx="16" cy="12" r="1.6"/><circle cx="8" cy="18" r="1.6"/><circle cx="16" cy="18" r="1.6"/></svg>`,
+    dockPos: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M15 3v18"/><path d="m8 9 3 3-3 3"/></svg>`,
+    collapse: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="15 18 9 12 15 6"/></svg>`,
+    expand: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="14" height="14"><polyline points="9 18 15 12 9 6"/></svg>`
   };
 
   function createLensDOM() {
@@ -92,21 +100,21 @@
     baseStyle.textContent = `
       :host, #lupa-wrapper, .lens {
         --pad: 8px;
-        --bar-h: 42px;
-        --r: 14px;
+        --r: 16px;
         --accent: #79a6ff;
         --accent-2: #b79bff;
-        --ok: #4ade80;
-        --warn: #fbbf24;
-        --err: #f87171;
-        --ink: #eaf0ff;
-        --ink-dim: #9aa6c4;
-        --line: rgba(255, 255, 255, 0.14);
-        --panel: rgba(15, 18, 30, 0.94);
+        --accent-cyan: #00f0ff;
+        --ok: #10b981;
+        --warn: #f59e0b;
+        --err: #ef4444;
+        --ink: #f8fafc;
+        --ink-dim: #94a3b8;
+        --line: rgba(255, 255, 255, 0.12);
+        --panel: rgba(9, 11, 20, 0.94);
         --panel-hi: rgba(255, 255, 255, 0.08);
         --glass: ${currentOpacity / 100};
         --glass-rgb: 9, 13, 24;
-        --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        --ui-font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
         font-family: var(--ui-font);
         color: var(--ink);
       }
@@ -126,7 +134,7 @@
         background: rgba(var(--glass-rgb), var(--glass));
         backdrop-filter: saturate(120%);
         -webkit-backdrop-filter: saturate(120%);
-        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 12px 40px rgba(0, 0, 0, 0.45);
+        box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12), 0 16px 48px rgba(0, 0, 0, 0.55);
         transition: background 0.15s ease;
       }
       .frame {
@@ -134,90 +142,395 @@
         inset: 0;
         border-radius: var(--r);
         pointer-events: none;
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), inset 0 0 0 1.5px rgba(121, 166, 255, 0.9);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), inset 0 0 0 1.6px rgba(121, 166, 255, 0.85);
+        transition: box-shadow 0.2s ease;
       }
-      .bar {
+      .lens:hover .frame {
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.8), inset 0 0 0 1.8px rgba(121, 166, 255, 1), 0 0 24px -4px rgba(121, 166, 255, 0.35);
+      }
+
+      /* Barra de arrastre superior amplia e intuitiva (Full-Width Header Drag Zone) */
+      .lens-drag-bezel {
         position: absolute;
         top: 0; left: 0; right: 0;
-        height: var(--bar-h);
-        display: flex;
-        align-items: center;
-        gap: 6px;
-        padding: 0 8px 0 12px;
-        background: var(--panel);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        color: var(--ink);
-        border-radius: var(--r) var(--r) 10px 10px;
-        border-bottom: 1px solid var(--line);
+        height: 28px;
+        cursor: grab;
         pointer-events: auto;
         z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: var(--r) var(--r) 0 0;
+        transition: background 0.2s ease;
       }
-      .brand { display: flex; align-items: center; gap: 8px; cursor: move; }
+      .lens-drag-bezel:active { cursor: grabbing; }
+      .lens-drag-bezel::after {
+        content: "";
+        width: 56px;
+        height: 4px;
+        border-radius: 4px;
+        background: rgba(255, 255, 255, 0.25);
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+      }
+      .lens:hover .lens-drag-bezel {
+        background: linear-gradient(180deg, rgba(121, 166, 255, 0.12) 0%, transparent 100%);
+      }
+      .lens:hover .lens-drag-bezel::after {
+        background: linear-gradient(90deg, var(--accent-cyan), var(--accent));
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.7);
+        width: 88px;
+      }
+
+      /* Bordes de arrastre perimetrales del marco */
+      .frame-drag-zone {
+        position: absolute;
+        pointer-events: auto;
+        cursor: grab;
+        z-index: 8;
+      }
+      .frame-drag-zone:active { cursor: grabbing; }
+      .fdz-bottom { bottom: 0; left: 16px; right: 16px; height: 10px; }
+      .fdz-left { left: 0; top: 20px; bottom: 20px; width: 10px; }
+      .fdz-right { right: 0; top: 20px; bottom: 20px; width: 10px; }
+
+      /* Arrastre Inteligente con Tecla Alt */
+      .lens.is-alt-dragging,
+      .lens.is-alt-dragging * {
+        cursor: grab !important;
+      }
+      .lens.is-alt-dragging:active,
+      .lens.is-alt-dragging:active * {
+        cursor: grabbing !important;
+      }
+
+      /* Dock Flotante Lateral ("A los costados") */
+      .lens-dock {
+        position: absolute;
+        z-index: 25;
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        padding: 6px;
+        background: var(--panel);
+        backdrop-filter: blur(20px) saturate(180%);
+        -webkit-backdrop-filter: blur(20px) saturate(180%);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        box-shadow: 0 12px 36px -6px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.05), 0 0 25px -5px rgba(99, 102, 241, 0.25);
+        pointer-events: auto;
+        transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.2s ease, left 0.2s ease, right 0.2s ease, top 0.2s ease, bottom 0.2s ease;
+      }
+
+      /* Posición Costado Derecho Exterior (Por defecto) */
+      .lens[data-dock-pos="right"] .lens-dock {
+        left: calc(100% + 10px);
+        right: auto;
+        top: 0;
+        bottom: auto;
+        flex-direction: column;
+        width: 46px;
+      }
+
+      /* Posición Costado Izquierdo Exterior */
+      .lens[data-dock-pos="left"] .lens-dock {
+        right: calc(100% + 10px);
+        left: auto;
+        top: 0;
+        bottom: auto;
+        flex-direction: column;
+        width: 46px;
+      }
+
+      /* Posición Superior Externa (Fuera de la lente) */
+      .lens[data-dock-pos="top"] .lens-dock {
+        bottom: calc(100% + 10px);
+        top: auto;
+        left: 0;
+        right: auto;
+        flex-direction: row;
+        height: 44px;
+      }
+
+      /* Posición Inferior Externa (Fuera de la lente) */
+      .lens[data-dock-pos="bottom"] .lens-dock {
+        top: calc(100% + 10px);
+        bottom: auto;
+        left: 0;
+        right: auto;
+        flex-direction: row;
+        height: 44px;
+      }
+
+      /* Posición Inteligente Dentro del Cuadro: Esquina Superior Derecha */
+      .lens[data-dock-pos="inside-right"] .lens-dock {
+        right: 10px;
+        left: auto;
+        top: 10px;
+        bottom: auto;
+        flex-direction: column;
+        width: 46px;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.16);
+      }
+
+      /* Posición Inteligente Dentro del Cuadro: Esquina Superior Izquierda */
+      .lens[data-dock-pos="inside-left"] .lens-dock {
+        left: 10px;
+        right: auto;
+        top: 10px;
+        bottom: auto;
+        flex-direction: column;
+        width: 46px;
+        box-shadow: 0 12px 36px rgba(0, 0, 0, 0.85), 0 0 0 1px rgba(255, 255, 255, 0.16);
+      }
+
+      /* Estado Colapsado / Minimizado */
+      .lens[data-dock-collapsed="true"] .dock-collapsible {
+        display: none !important;
+      }
+      .lens[data-dock-collapsed="true"] .dock-sep {
+        display: none !important;
+      }
+      .lens[data-dock-collapsed="true"] .lens-dock {
+        padding: 4px;
+        gap: 4px;
+      }
+
+      .dock-grip {
+        width: 32px;
+        height: 20px;
+        display: grid;
+        place-items: center;
+        color: var(--ink-dim);
+        cursor: grab;
+        border-radius: 6px;
+        transition: all 0.15s ease;
+      }
+      .dock-grip:active { cursor: grabbing; }
+      .dock-grip:hover { color: #fff; background: var(--panel-hi); }
+
+      .dock-brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        padding: 2px 0;
+        cursor: default;
+      }
+      .lens[data-dock-pos="top"] .dock-brand,
+      .lens[data-dock-pos="bottom"] .dock-brand {
+        flex-direction: row;
+        padding: 0 4px;
+      }
       .logo { width: 22px; height: 22px; display: grid; place-items: center; }
-      .dot {
+
+      .dock-dot {
         width: 8px; height: 8px; border-radius: 50%;
         background: var(--ok);
-        box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.25);
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.25);
         transition: background 0.2s, box-shadow 0.2s;
       }
-      .lens[data-state="busy"] .dot {
-        background: var(--accent);
-        box-shadow: 0 0 0 3px rgba(121, 166, 255, 0.35);
+      .lens[data-state="busy"] .dock-dot {
+        background: var(--accent-cyan);
+        box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.35);
         animation: pulse 1s infinite;
       }
-      .lens[data-state="paused"] .dot {
+      .lens[data-state="paused"] .dock-dot {
         background: var(--warn);
-        box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.35);
+        box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.35);
       }
-      @keyframes pulse { 50% { transform: scale(1.3); } }
-      .status-text { font-size: 12px; color: var(--ink-dim); white-space: nowrap; }
+      .lens[data-state="error"] .dock-dot {
+        background: var(--err);
+        box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.35);
+      }
+      @keyframes pulse { 50% { transform: scale(1.35); } }
 
-      .chip {
-        display: flex; align-items: center; gap: 6px;
-        height: 28px; padding: 0 10px;
+      .dock-lang-btn {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 4px 6px;
         border-radius: 9px;
         background: var(--panel-hi);
         border: 1px solid var(--line);
         color: var(--ink);
-        font-size: 12px; font-weight: 600;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
         cursor: pointer;
-        transition: background 0.15s;
+        transition: all 0.15s ease;
+        line-height: 1;
+        gap: 2px;
       }
-      .chip:hover { background: rgba(255, 255, 255, 0.14); }
-      #targetLabel { color: var(--accent); }
+      .dock-lang-btn:hover {
+        background: rgba(121, 166, 255, 0.22);
+        border-color: var(--accent);
+        box-shadow: 0 0 10px rgba(121, 166, 255, 0.3);
+      }
+      .lens[data-dock-pos="top"] .dock-lang-btn,
+      .lens[data-dock-pos="bottom"] .dock-lang-btn {
+        flex-direction: row;
+        padding: 6px 10px;
+        font-size: 11px;
+        gap: 5px;
+      }
+      .lang-tag { color: var(--ink-dim); }
+      .lang-tag.target { color: var(--accent); }
+      .lang-divider { font-size: 9px; opacity: 0.6; }
+      .lang-divider::before { content: "↓"; }
+      .lens[data-dock-pos="top"] .lang-divider::before,
+      .lens[data-dock-pos="bottom"] .lang-divider::before { content: "→"; }
 
-      .tools { display: flex; align-items: center; gap: 2px; }
-      .tool {
-        width: 30px; height: 30px; border-radius: 9px;
+      .dock-sep {
+        background: var(--line);
+        opacity: 0.8;
+      }
+      .lens[data-dock-pos="right"] .dock-sep,
+      .lens[data-dock-pos="left"] .dock-sep,
+      .lens[data-dock-pos="inside-right"] .dock-sep,
+      .lens[data-dock-pos="inside-left"] .dock-sep {
+        width: 26px; height: 1px; margin: 2px 0;
+      }
+      .lens[data-dock-pos="top"] .dock-sep,
+      .lens[data-dock-pos="bottom"] .dock-sep {
+        width: 1px; height: 24px; margin: 0 2px;
+      }
+
+      .dock-collapsible {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .lens[data-dock-pos="right"] .dock-collapsible,
+      .lens[data-dock-pos="left"] .dock-collapsible,
+      .lens[data-dock-pos="inside-right"] .dock-collapsible,
+      .lens[data-dock-pos="inside-left"] .dock-collapsible {
+        flex-direction: column;
+      }
+      .lens[data-dock-pos="top"] .dock-collapsible,
+      .lens[data-dock-pos="bottom"] .dock-collapsible {
+        flex-direction: row;
+      }
+
+      .dock-actions {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .lens[data-dock-pos="right"] .dock-actions,
+      .lens[data-dock-pos="left"] .dock-actions,
+      .lens[data-dock-pos="inside-right"] .dock-actions,
+      .lens[data-dock-pos="inside-left"] .dock-actions {
+        flex-direction: column;
+      }
+      .lens[data-dock-pos="top"] .dock-actions,
+      .lens[data-dock-pos="bottom"] .dock-actions {
+        flex-direction: row;
+      }
+
+      .dock-tool {
+        width: 32px; height: 32px; border-radius: 9px;
         display: grid; place-items: center;
         color: var(--ink-dim);
         cursor: pointer;
         transition: all 0.15s ease;
       }
-      .tool:hover { background: var(--panel-hi); color: #fff; }
-      .tool.active { background: rgba(121, 166, 255, 0.25); color: var(--accent); }
-      .tool-close:hover { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
+      .dock-tool:hover { background: var(--panel-hi); color: #fff; transform: scale(1.06); }
+      .dock-tool:active { transform: scale(0.94); }
+      .dock-tool.active { background: rgba(121, 166, 255, 0.25); color: var(--accent); }
+      .dock-tool-danger:hover { background: rgba(239, 68, 68, 0.25); color: #fca5a5; }
 
+      /* Micro-tooltips automáticos de alta fidelidad */
+      [data-tip] { position: relative; }
+      [data-tip]::after {
+        content: attr(data-tip);
+        position: absolute;
+        opacity: 0;
+        pointer-events: none;
+        background: rgba(10, 12, 22, 0.96);
+        color: #f8fafc;
+        font-size: 11px;
+        font-weight: 500;
+        padding: 5px 9px;
+        border-radius: 7px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.65), 0 0 12px rgba(121, 166, 255, 0.15);
+        white-space: nowrap;
+        z-index: 100;
+        transition: opacity 0.15s ease, transform 0.15s ease;
+        line-height: 1.2;
+      }
+      .lens[data-dock-pos="right"] [data-tip]::after,
+      .lens[data-dock-pos="inside-right"] [data-tip]::after {
+        right: calc(100% + 9px);
+        left: auto;
+        top: 50%;
+        transform: translateY(-50%) translateX(4px);
+      }
+      .lens[data-dock-pos="right"] [data-tip]:hover::after,
+      .lens[data-dock-pos="inside-right"] [data-tip]:hover::after {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+      }
+      .lens[data-dock-pos="left"] [data-tip]::after,
+      .lens[data-dock-pos="inside-left"] [data-tip]::after {
+        left: calc(100% + 9px);
+        right: auto;
+        top: 50%;
+        transform: translateY(-50%) translateX(-4px);
+      }
+      .lens[data-dock-pos="left"] [data-tip]:hover::after,
+      .lens[data-dock-pos="inside-left"] [data-tip]:hover::after {
+        opacity: 1;
+        transform: translateY(-50%) translateX(0);
+      }
+      .lens[data-dock-pos="top"] [data-tip]::after {
+        top: calc(100% + 9px);
+        bottom: auto;
+        left: 50%;
+        transform: translateX(-50%) translateY(-4px);
+      }
+      .lens[data-dock-pos="top"] [data-tip]:hover::after {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+      .lens[data-dock-pos="bottom"] [data-tip]::after {
+        bottom: calc(100% + 9px);
+        top: auto;
+        left: 50%;
+        transform: translateX(-50%) translateY(4px);
+      }
+      .lens[data-dock-pos="bottom"] [data-tip]:hover::after {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+      }
+
+      /* Barra de progreso de haz de luz neón sobre el borde superior */
       .progress {
         position: absolute; z-index: 12;
-        top: var(--bar-h); left: 14px; right: 14px; height: 2px;
-        border-radius: 2px; overflow: hidden; opacity: 0; transition: opacity 0.2s;
+        top: 0; left: 0; right: 0; height: 3px;
+        border-radius: var(--r) var(--r) 0 0;
+        overflow: hidden; opacity: 0; transition: opacity 0.2s;
         background: transparent;
+        pointer-events: none;
       }
       .lens[data-busy="1"] .progress { opacity: 1; }
       .progress::after {
-        content: ""; position: absolute; inset: 0; width: 40%;
-        background: linear-gradient(90deg, transparent, var(--accent), var(--accent-2), transparent);
-        animation: slide-bar 1s linear infinite;
+        content: ""; position: absolute; inset: 0; width: 50%;
+        background: linear-gradient(90deg, transparent, #00f0ff, #8b5cf6, #3b82f6, transparent);
+        box-shadow: 0 0 12px rgba(0, 240, 255, 0.7);
+        animation: slide-bar 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
       }
-      @keyframes slide-bar { from { transform: translateX(-100%); } to { transform: translateX(260%); } }
+      @keyframes slide-bar { from { transform: translateX(-100%); } to { transform: translateX(250%); } }
 
+      /* Escenario 100% limpio y transparente (sin barra adentro que tape el texto superior) */
       .stage {
         position: absolute;
-        top: var(--bar-h); bottom: 0; left: 0; right: 0;
+        inset: 0;
         pointer-events: none;
         overflow: hidden;
+        border-radius: var(--r);
       }
       .overlay-layer {
         position: absolute;
@@ -276,21 +589,26 @@
         pointer-events: auto;
         font-size: 14px;
         line-height: 1.6;
+        border-radius: var(--r);
       }
 
       .pop {
         position: absolute;
-        top: calc(var(--bar-h) + 6px);
-        right: 10px;
-        background: rgba(15, 18, 30, 0.98);
-        border: 1px solid var(--line);
-        border-radius: 12px;
+        background: rgba(10, 12, 22, 0.96);
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        border-radius: 14px;
         padding: 12px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6);
-        backdrop-filter: blur(16px);
-        z-index: 20;
-        width: 220px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
+        z-index: 30;
+        width: 230px;
         pointer-events: auto;
+        animation: pop-in 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+      }
+      @keyframes pop-in {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
       }
       .pop-title { font-size: 12px; font-weight: 600; color: var(--ink-dim); margin-bottom: 8px; }
       .seg-btn {
@@ -313,39 +631,65 @@
     wrapper.style.cssText = 'position:absolute;left:100px;top:100px;width:540px;height:340px;min-width:240px;min-height:160px;pointer-events:none;';
 
     wrapper.innerHTML = `
-      <div id="lens" class="lens" data-mode="${currentMode}" data-theme="dark" data-state="idle">
+      <div id="lens" class="lens" data-mode="${currentMode}" data-dock-pos="${activeDockPos}" data-dock-collapsed="false" data-theme="dark" data-state="idle">
         <div class="glass" id="glass"></div>
         <div class="frame"></div>
 
-        <!-- Barra superior interactiva -->
-        <header id="bar" class="bar">
-          <div class="brand" id="brand" data-drag title="Arrastra para mover la lente">
-            <span class="logo">${ICONS.logo}</span>
-            <span class="dot" id="dot"></span>
-            <span class="status-text" id="statusText">Lista</span>
+        <!-- Bezel de arrastre superior completo (100% transparente para dejar ver el texto) -->
+        <div class="lens-drag-bezel" id="topGrip" data-drag title="Arrastra para mover la lente (Doble clic para centrar)"></div>
+        <div class="frame-drag-zone fdz-bottom" data-drag title="Arrastra para mover la lente"></div>
+        <div class="frame-drag-zone fdz-left" data-drag title="Arrastra para mover la lente"></div>
+        <div class="frame-drag-zone fdz-right" data-drag title="Arrastra para mover la lente"></div>
+
+        <!-- Dock Flotante Lateral ("A los costados") -->
+        <aside id="bar" class="lens-dock" aria-label="Herramientas de Lupa">
+          <!-- Grip de arrastre del dock -->
+          <div class="dock-grip" id="brand" data-drag data-tip="Arrastrar Lupa (Doble clic para minimizar)" title="Arrastra para mover la lente">
+            ${ICONS.dragGrip}
           </div>
 
-          <button id="langBtn" class="chip" title="Idioma original" type="button">
-            <span id="langLabel">${sourceLang === 'auto' && detectedSourceLang ? detectedSourceLang.toUpperCase() : sourceLang.toUpperCase()}</span>
-            <span class="arrow">${ICONS.arrow}</span>
-            <span id="targetLabel">${targetLang.toUpperCase()}</span>
+          <!-- Indicador de estado y logo -->
+          <div class="dock-brand" id="statusBadge" data-tip="Estado: Lista">
+            <span class="logo">${ICONS.logo}</span>
+            <span class="dock-dot" id="dot"></span>
+            <span class="status-text" id="statusText" style="display:none;">Lista</span>
+          </div>
+
+          <!-- Selector de Idioma -->
+          <button id="langBtn" class="dock-lang-btn" data-tip="Cambiar idioma" type="button">
+            <span id="langLabel" class="lang-tag">${sourceLang === 'auto' && detectedSourceLang ? detectedSourceLang.toUpperCase() : sourceLang.toUpperCase()}</span>
+            <span class="lang-divider"></span>
+            <span id="targetLabel" class="lang-tag target">${targetLang.toUpperCase()}</span>
           </button>
 
-          <div class="spacer" id="spacer" data-drag style="flex:1;cursor:move;height:100%;"></div>
+          <div class="dock-sep"></div>
 
-          <div class="tools">
-            <button id="modeBtn" class="tool" type="button" title="Alternar modo de traducción">${currentMode === 'native' ? ICONS.domMode : (currentMode === 'overlay' ? ICONS.lensMode : ICONS.readerMode)}</button>
-            <button id="ocrVisualBtn" class="tool" type="button" title="Forzar OCR Visual de Imagen/Pantalla">${ICONS.camera}</button>
-            <button id="opacityBtn" class="tool" type="button" title="Transparencia del cristal">${ICONS.droplet}</button>
-            <button id="pauseBtn" class="tool" type="button" title="Pausar / Reanudar escaneo">${ICONS.pause}</button>
-            <button id="refreshBtn" class="tool" type="button" title="Traducir ahora">${ICONS.refresh}</button>
-            <button id="closeBtn" class="tool tool-close" type="button" title="Cerrar Lupa">${ICONS.close}</button>
+          <!-- Herramientas principales colapsables -->
+          <div class="dock-collapsible" id="dockTools">
+            <button id="modeBtn" class="dock-tool" type="button" data-tip="Modo traducción (DOM / Superposición / Lector)">${currentMode === 'native' ? ICONS.domMode : (currentMode === 'overlay' ? ICONS.lensMode : ICONS.readerMode)}</button>
+            <button id="ocrVisualBtn" class="dock-tool" type="button" data-tip="Forzar OCR Visual">${ICONS.camera}</button>
+            <button id="opacityBtn" class="dock-tool" type="button" data-tip="Transparencia cristal">${ICONS.droplet}</button>
+            <button id="pauseBtn" class="dock-tool" type="button" data-tip="Pausar / Reanudar">${ICONS.pause}</button>
+            <button id="refreshBtn" class="dock-tool" type="button" data-tip="Traducir ahora">${ICONS.refresh}</button>
           </div>
-        </header>
 
+          <div class="dock-sep"></div>
+
+          <!-- Acciones de Dock y Ventana -->
+          <div class="dock-actions">
+            <button id="dockPosBtn" class="dock-tool" type="button" data-tip="Posición de barra (Auto Inteligente / Costados / Dentro del cuadro)">${ICONS.dockPos}</button>
+            <button id="dockCollapseBtn" class="dock-tool" type="button" data-tip="Minimizar barra">${ICONS.collapse}</button>
+            <button id="closeBtn" class="dock-tool dock-tool-danger" type="button" data-tip="Cerrar Lupa">${ICONS.close}</button>
+          </div>
+
+          <!-- Spacer invisible para compatibilidad con código existente -->
+          <div id="spacer" data-drag style="display:none;"></div>
+        </aside>
+
+        <!-- Barra de progreso de haz de luz neón -->
         <div class="progress" id="progress"></div>
 
-        <!-- Escenario de visualización transparente -->
+        <!-- Escenario de visualización transparente (100% de la lente, SIN BARRA ADENTRO) -->
         <main id="stage" class="stage">
           <div id="overlayLayer" class="overlay-layer"></div>
           <article id="reader" class="reader" hidden></article>
@@ -391,7 +735,7 @@
     setupLensInteractions(wrapper, shadowRoot);
 
     // Cargar y aplicar configuración guardada de usuario
-    browser.storage?.local?.get(['targetLang', 'defaultOpacity']).then((cfg) => {
+    browser.storage?.local?.get(['targetLang', 'defaultOpacity', 'preferredDockPos', 'dockPosition']).then((cfg) => {
       if (cfg?.targetLang) {
         targetLang = cfg.targetLang;
         const targetLabel = shadowRoot.getElementById('targetLabel');
@@ -405,6 +749,16 @@
         if (lens) lens.style.setProperty('--glass', currentOpacity / 100);
         if (opacityValue) opacityValue.textContent = `${currentOpacity}%`;
         if (opacityRange) opacityRange.value = currentOpacity;
+      }
+      if (cfg?.preferredDockPos) {
+        preferredDockPos = cfg.preferredDockPos;
+      } else if (cfg?.dockPosition) {
+        preferredDockPos = cfg.dockPosition;
+      }
+      // Ejecutar evaluación inteligente de posición
+      const evaluateSmartDockFn = shadowRoot.getElementById('lens')?._evaluateSmartDock;
+      if (typeof evaluateSmartDockFn === 'function') {
+        evaluateSmartDockFn();
       }
     });
 
@@ -1232,6 +1586,10 @@
   function setupLensInteractions(wrapper, root) {
     const brand = root.getElementById('brand');
     const spacer = root.getElementById('spacer');
+    const topGrip = root.getElementById('topGrip');
+    const statusBadge = root.getElementById('statusBadge');
+    const dockPosBtn = root.getElementById('dockPosBtn');
+    const dockCollapseBtn = root.getElementById('dockCollapseBtn');
     const closeBtn = root.getElementById('closeBtn');
     const opacityBtn = root.getElementById('opacityBtn');
     const opacityPop = root.getElementById('opacityPop');
@@ -1248,7 +1606,119 @@
     const reader = root.getElementById('reader');
     const stage = root.getElementById('stage');
 
-    // 1. Mover la lente (Drag)
+    // Sincronizar texto de estado con el micro-tooltip del badge de la barra lateral
+    const statusObserver = new MutationObserver(() => {
+      if (statusBadge && statusText) {
+        statusBadge.setAttribute('data-tip', `Estado: ${statusText.textContent}`);
+      }
+    });
+    if (statusText) {
+      statusObserver.observe(statusText, { childList: true, characterData: true, subtree: true });
+    }
+
+    // Helper para anclar los popovers al costado del dock según la posición actual
+    function updatePopoversPosition() {
+      [opacityPop, langMenu].forEach((pop) => {
+        if (!pop || pop.hidden) return;
+        const curPos = lens.dataset.dockPos || 'right';
+        const wRect = wrapper.getBoundingClientRect();
+        if (curPos === 'inside-right') {
+          pop.style.top = '10px';
+          pop.style.bottom = 'auto';
+          pop.style.left = 'auto';
+          pop.style.right = '62px';
+        } else if (curPos === 'inside-left') {
+          pop.style.top = '10px';
+          pop.style.bottom = 'auto';
+          pop.style.right = 'auto';
+          pop.style.left = '62px';
+        } else if (curPos === 'right') {
+          pop.style.top = '10px';
+          pop.style.bottom = 'auto';
+          if (wRect.right + 250 > window.innerWidth) {
+            pop.style.left = 'auto';
+            pop.style.right = '56px';
+          } else {
+            pop.style.right = 'auto';
+            pop.style.left = 'calc(100% + 56px)';
+          }
+        } else if (curPos === 'left') {
+          pop.style.top = '10px';
+          pop.style.bottom = 'auto';
+          if (wRect.left - 250 < 0) {
+            pop.style.right = 'auto';
+            pop.style.left = '56px';
+          } else {
+            pop.style.left = 'auto';
+            pop.style.right = 'calc(100% + 56px)';
+          }
+        } else if (curPos === 'top') {
+          pop.style.left = '10px';
+          pop.style.right = 'auto';
+          pop.style.top = 'auto';
+          pop.style.bottom = 'calc(100% + 52px)';
+        } else {
+          pop.style.left = '10px';
+          pop.style.right = 'auto';
+          pop.style.top = 'calc(100% + 52px)';
+          pop.style.bottom = 'auto';
+        }
+      });
+    }
+
+    // 0. Algoritmo Inteligente de Ubicación del Dock (Smart Dock)
+    function evaluateSmartDock() {
+      if (!wrapper || !lens) return;
+      const wRect = wrapper.getBoundingClientRect();
+      const spaceRight = window.innerWidth - wRect.right;
+      const spaceLeft = wRect.left;
+      const spaceTop = wRect.top;
+      const spaceBottom = window.innerHeight - wRect.bottom;
+      let chosen = 'right';
+
+      if (preferredDockPos === 'inside-right' || preferredDockPos === 'inside-left') {
+        chosen = preferredDockPos;
+      } else if (preferredDockPos === 'right') {
+        if (spaceRight >= 56) chosen = 'right';
+        else if (spaceLeft >= 56) chosen = 'left';
+        else chosen = 'inside-right';
+      } else if (preferredDockPos === 'left') {
+        if (spaceLeft >= 56) chosen = 'left';
+        else if (spaceRight >= 56) chosen = 'right';
+        else chosen = 'inside-left';
+      } else if (preferredDockPos === 'top') {
+        if (spaceTop >= 52) chosen = 'top';
+        else if (spaceBottom >= 52) chosen = 'bottom';
+        else chosen = spaceRight >= 56 ? 'right' : 'inside-right';
+      } else if (preferredDockPos === 'bottom') {
+        if (spaceBottom >= 52) chosen = 'bottom';
+        else if (spaceTop >= 52) chosen = 'top';
+        else chosen = spaceRight >= 56 ? 'right' : 'inside-right';
+      } else {
+        // Modo 'auto': Detecta dinámicamente el área con mayor comodidad visual
+        if (spaceRight >= 56) {
+          chosen = 'right';
+        } else if (spaceLeft >= 56) {
+          chosen = 'left';
+        } else if (spaceBottom >= 52) {
+          chosen = 'bottom';
+        } else if (spaceTop >= 52) {
+          chosen = 'top';
+        } else {
+          // Si la ventana está muy ajustada contra los bordes, pasa adentro del marco
+          chosen = spaceRight >= spaceLeft ? 'inside-right' : 'inside-left';
+        }
+      }
+
+      if (activeDockPos !== chosen) {
+        activeDockPos = chosen;
+        lens.dataset.dockPos = chosen;
+        updatePopoversPosition();
+      }
+    }
+    lens._evaluateSmartDock = evaluateSmartDock;
+
+    // 1. Mover la lente (Drag Multi-Zona e Inteligente)
     let isDragging = false;
     let dragStartX = 0, dragStartY = 0;
     let startLeft = 0, startTop = 0;
@@ -1262,10 +1732,49 @@
       startLeft = rect.left;
       startTop = rect.top;
       e.preventDefault();
+      e.stopPropagation();
     };
 
-    brand.addEventListener('mousedown', onMouseDownDrag);
-    spacer.addEventListener('mousedown', onMouseDownDrag);
+    // Vincular todos los tiradores de arrastre con [data-drag]
+    root.querySelectorAll('[data-drag]').forEach((el) => {
+      el.addEventListener('mousedown', onMouseDownDrag);
+    });
+
+    // Doble clic en la barra superior: centrar la lente perfectamente en pantalla
+    topGrip?.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const curW = wrapper.offsetWidth || 540;
+      const curH = wrapper.offsetHeight || 340;
+      const centeredLeft = Math.max(10, Math.round((window.innerWidth - curW) / 2));
+      const centeredTop = Math.max(10, Math.round((window.innerHeight - curH) / 2));
+      wrapper.style.left = `${centeredLeft}px`;
+      wrapper.style.top = `${centeredTop}px`;
+      evaluateSmartDock();
+      updateOverlayPositions();
+      scheduleScan(120);
+    });
+
+    // Modo Arrastre Global con tecla Alt
+    const onKeyDown = (e) => {
+      if (e.key === 'Alt') {
+        lens.classList.add('is-alt-dragging');
+      }
+    };
+    const onKeyUp = (e) => {
+      if (e.key === 'Alt') {
+        lens.classList.remove('is-alt-dragging');
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+
+    // Si mantiene Alt presionado, hacer clic en cualquier parte del escenario arrastra la lente
+    stage?.addEventListener('mousedown', (e) => {
+      if (e.altKey && !e.target.closest('button') && !e.target.closest('input')) {
+        onMouseDownDrag(e);
+      }
+    });
 
     // 2. Redimensionar (Resize)
     let isResizing = false;
@@ -1293,8 +1802,14 @@
       if (isDragging) {
         const dx = e.clientX - dragStartX;
         const dy = e.clientY - dragStartY;
-        wrapper.style.left = `${Math.max(10, Math.min(window.innerWidth - 100, startLeft + dx))}px`;
-        wrapper.style.top = `${Math.max(10, Math.min(window.innerHeight - 60, startTop + dy))}px`;
+        const curW = wrapper.offsetWidth || 540;
+        const curH = wrapper.offsetHeight || 340;
+        const newLeft = Math.max(8, Math.min(window.innerWidth - curW - 8, startLeft + dx));
+        const newTop = Math.max(8, Math.min(window.innerHeight - curH - 8, startTop + dy));
+        wrapper.style.left = `${newLeft}px`;
+        wrapper.style.top = `${newTop}px`;
+
+        evaluateSmartDock();
         updateOverlayPositions();
       } else if (isResizing) {
         const dx = e.clientX - rStartX;
@@ -1312,6 +1827,7 @@
           wrapper.style.height = `${newH}px`;
           wrapper.style.top = `${rStartT + (rStartH - newH)}px`;
         }
+        evaluateSmartDock();
         updateOverlayPositions();
       }
     });
@@ -1320,6 +1836,7 @@
       if (isDragging || isResizing) {
         isDragging = false;
         isResizing = false;
+        evaluateSmartDock();
         updateOverlayPositions();
         scheduleScan(120);
       }
@@ -1334,6 +1851,7 @@
     opacityBtn.addEventListener('click', () => {
       opacityPop.hidden = !opacityPop.hidden;
       langMenu.hidden = true;
+      if (!opacityPop.hidden) updatePopoversPosition();
     });
 
     opacityRange.addEventListener('input', (e) => {
@@ -1347,6 +1865,7 @@
     langBtn.addEventListener('click', () => {
       langMenu.hidden = !langMenu.hidden;
       opacityPop.hidden = true;
+      if (!langMenu.hidden) updatePopoversPosition();
     });
 
     root.querySelectorAll('#langList button').forEach((btn) => {
@@ -1362,6 +1881,45 @@
         lastVisualOcrSignature = '';
         scheduleScan(100);
       });
+    });
+
+    // 5.1. Ciclar Posición de la Barra (Auto -> Costado Derecho -> Costado Izquierdo -> Dentro Cuadro Der -> Dentro Cuadro Izq -> Abajo -> Arriba)
+    const DOCK_MODES = [
+      { id: 'auto', label: 'Auto Inteligente' },
+      { id: 'right', label: 'Costado Derecho' },
+      { id: 'left', label: 'Costado Izquierdo' },
+      { id: 'inside-right', label: 'Dentro del Cuadro (Der)' },
+      { id: 'inside-left', label: 'Dentro del Cuadro (Izq)' },
+      { id: 'bottom', label: 'Abajo Exterior' },
+      { id: 'top', label: 'Arriba Exterior' }
+    ];
+
+    dockPosBtn?.addEventListener('click', () => {
+      const curIdx = Math.max(0, DOCK_MODES.findIndex((m) => m.id === preferredDockPos));
+      const nextIdx = (curIdx + 1) % DOCK_MODES.length;
+      preferredDockPos = DOCK_MODES[nextIdx].id;
+      dockPosBtn.setAttribute('data-tip', `Posición: ${DOCK_MODES[nextIdx].label}`);
+      browser.storage?.local?.set({ preferredDockPos });
+      evaluateSmartDock();
+    });
+
+    // 5.2. Minimizar / Expandir Barra Lateral (Click botón o Doble clic en grip)
+    const toggleDockCollapse = () => {
+      isDockCollapsed = !isDockCollapsed;
+      lens.dataset.dockCollapsed = isDockCollapsed ? 'true' : 'false';
+      if (dockCollapseBtn) {
+        dockCollapseBtn.innerHTML = isDockCollapsed ? ICONS.expand : ICONS.collapse;
+        dockCollapseBtn.title = isDockCollapsed ? 'Expandir barra' : 'Minimizar barra';
+        dockCollapseBtn.setAttribute('data-tip', isDockCollapsed ? 'Expandir barra' : 'Minimizar barra');
+      }
+      evaluateSmartDock();
+    };
+
+    dockCollapseBtn?.addEventListener('click', toggleDockCollapse);
+    brand?.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleDockCollapse();
     });
 
     // 6. Botón Pausar / Reanudar
@@ -1449,6 +2007,7 @@
     document.addEventListener('scroll', onScroll, { capture: true, passive: true });
 
     window.addEventListener('resize', () => {
+      evaluateSmartDock();
       updateOverlayPositions();
     }, { passive: true });
   }
