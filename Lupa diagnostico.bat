@@ -1,12 +1,17 @@
 @echo off
-rem Abre Lupa mostrando el registro en esta consola (para diagnosticar problemas).
-rem Usa el modo sin aceleracion grafica por si la GPU no dibuja la ventana transparente.
+rem Modo diagnostico y validacion de compatibilidad para Mozilla Firefox
 cd /d "%~dp0"
-taskkill /F /IM electron.exe >nul 2>&1
-set LUPA_DEBUG=1
-echo Abriendo Lupa en modo diagnostico... (no cierres esta ventana)
+
+echo ===================================================
+echo   Diagnostico de Extension para Mozilla Firefox    
+echo ===================================================
 echo.
-"node_modules\electron\dist\electron.exe" . --disable-gpu
+echo 1. Validando manifest y estructura con web-ext lint...
+call npx web-ext lint
 echo.
-echo Lupa se cerro (codigo %ERRORLEVEL%). Copia el texto de arriba si hubo errores.
+echo 2. Iniciando Firefox en modo verbose/diagnostico...
+call npx web-ext run --verbose
+
+echo.
+echo Firefox se cerro. Revisa los mensajes anteriores si hubo advertencias.
 pause

@@ -1,9 +1,19 @@
 @echo off
-rem Abre Lupa (doble clic). Instala las dependencias la primera vez si faltan.
+rem Inicia la extension Lupa OCR Transparente en Mozilla Firefox con recarga automatica (web-ext)
 cd /d "%~dp0"
-if not exist "node_modules\electron\dist\electron.exe" (
-  echo Instalando dependencias, espera un momento...
-  call npm install || (echo Error instalando dependencias. & pause & exit /b 1)
+
+echo ===================================================
+echo   Lupa OCR Transparente - Modo Desarrollo Firefox  
+echo ===================================================
+echo.
+echo Iniciando Firefox con la extension cargada...
+echo Cualquier cambio en los archivos recargara la extension en vivo.
+echo.
+
+npx web-ext run
+if %ERRORLEVEL% neq 0 (
+  echo.
+  echo Hubo un error al ejecutar web-ext.
+  echo Asegurate de tener Mozilla Firefox instalado.
+  pause
 )
-taskkill /F /IM electron.exe >nul 2>&1
-start "" "node_modules\electron\dist\electron.exe" .

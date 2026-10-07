@@ -1,85 +1,22 @@
 {
-  "name": "lupa-traductor",
-  "productName": "Lupa",
+  "name": "firefox-complemento-ocr-lupa-transparente",
+  "productName": "Lupa OCR Transparente",
   "version": "1.0.0",
-  "description": "Lente flotante que lee el texto de tu pantalla y lo traduce al español en tiempo real. Gratis, sin claves.",
-  "main": "src/main/main.js",
-  "author": "Lupa",
+  "description": "Lente flotante transparente para Firefox que realiza OCR y traducción de texto en tiempo real con clics a través. 100% JavaScript / WebAssembly local.",
+  "author": "Héctor Daniel Ayarachi Fuentes",
   "license": "MIT",
   "private": true,
   "scripts": {
-    "start": "electron .",
+    "start": "web-ext run",
+    "lint": "web-ext lint",
+    "build": "web-ext build --overwrite-dest",
     "test": "node --test test/*.test.js",
-    "icons": "electron scripts/make-icons.js",
-    "tessdata": "node scripts/fetch-tessdata.js",
-    "dist": "electron-builder --win nsis portable --x64",
-    "dist:dir": "electron-builder --win dir --x64"
+    "tessdata": "node scripts/fetch-tessdata.js"
   },
   "dependencies": {
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "electron": "^44.5.1",
-    "electron-builder": "^26.15.3"
-  },
-  "build": {
-    "appId": "com.lupa.traductor",
-    "productName": "Lupa",
-    "copyright": "Lupa",
-    "directories": {
-      "output": "dist",
-      "buildResources": "assets"
-    },
-    "files": [
-      "src/**/*",
-      "assets/icon.png",
-      "assets/tray.png",
-      "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": "assets/tessdata",
-        "to": "tessdata"
-      }
-    ],
-    "asarUnpack": [
-      "node_modules/**/*"
-    ],
-    "electronLanguages": [
-      "es",
-      "en-US"
-    ],
-    "compression": "normal",
-    "win": {
-      "icon": "assets/icon.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "signAndEditExecutable": true
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowToChangeInstallationDirectory": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "shortcutName": "Lupa",
-      "deleteAppDataOnUninstall": false,
-      "artifactName": "Lupa-Instalador-${version}.${ext}"
-    },
-    "portable": {
-      "artifactName": "Lupa-Portable-${version}.${ext}"
-    }
+    "web-ext": "^10.7.0"
   }
 }
