@@ -1,0 +1,30 @@
+# Agent Directives & Operational Rules — Firefox WebExtension (Lupa OCR Transparente)
+
+## 1. Safety & Hard Boundaries (Zona Prohibida - ECC Core)
+- **Archivos protegidos:** Prohibido modificar o exponer `.env*`, `.git/`, tokens, credenciales y claves de empaquetado/firma (`.pem`, `.xpi`).
+- **Inmutabilidad:** No alterar contratos de mensajería (`content_scripts` ↔ `background` ↔ `popup/options`) ni firmas de funciones sin autorización explícita previa.
+- **Operaciones terminal:** Prohibido ejecutar comandos destructivos (`rm -rf`, `git reset --hard`, `git push --force`).
+- **Edición atómica:** Realizar cambios quirúrgicos únicamente en las líneas necesarias; no reescribir archivos completos innecesariamente.
+
+## 2. OmniRoute Strategy (Optimización de Modelos y Costos)
+- **Modelo Ligero (Fast / Haiku / Flash):** Aplicar para formateo, documentación (JSDoc), linting, manifiestos WebExtension, i18n, commits y diffs rápidos.
+- **Modelo Avanzado (Deep / Sonnet / Opus):** Aplicar para pipeline de OCR en WebAssembly/Canvas, overlay y cálculo de bounding boxes, bridging con Mozilla Firefox WebExtension APIs y resolución de bugs concurrentes.
+
+## 3. Protocolo de Auditoría con GitNexus (Obligatorio)
+Antes de proponer o aplicar cualquier cambio de código:
+1. **Pre-Auditoría:** Invocar `gitnexus_impact` o `gitnexus_context` en el repo `firefox-complemento-ocr-lupa-transparente` para mapear el radio de impacto (*blast radius*) de las funciones a tocar.
+2. **Reporte:** Informar al usuario los archivos dependientes y el nivel de riesgo (Bajo / Medio / Alto).
+3. **Ejecución:** Aplicar los cambios autorizados.
+4. **Post-Auditoría:** Ejecutar `gitnexus_detect_changes` para certificar que no se introdujeron regresiones.
+
+## 4. Requisitos Específicos para Extensión Firefox (WebExtension)
+- **Seguridad CSP:** Prohibido el uso de `eval()` o carga de scripts remotos. El runtime de Tesseract / WASM debe servirse desde recursos locales de la extensión.
+- **Transparencia y Click-Through:** El contenedor de la lupa inyectada debe mantener `pointer-events: none` en la zona de visualización para que los clics y el scroll alcancen la página web, y `pointer-events: auto` en la barra de herramientas y controles.
+- **Eficiencia en Tiempo Real:** Las capturas y llamadas a OCR deben procesarse en workers y con debouncing/throttling para no degradar los FPS de Firefox.
+
+## 5. Directiva Frontend Embellecedor (Excelencia Visual Obligatoria)
+Al generar, maquetar o modificar interfaces web (HUD flotante, popup, options) es obligatorio aplicar la suite de `Fronted embellecedor/`:
+- **Estructura y Contenedores (ui-pro-max):** Usar fondos oscuros profundos (Obsidian `#050508`), bordes cinéticos (`.pro-beam-card`), tarjetas spotlight con seguimiento de puntero (`.pro-spotlight-card`) y headers glassmorphism (`.pro-header-glass`).
+- **Acabado, Espaciado y Botones (impecable):** Aplicar grilla geométrica 4pt/8pt (`--imp-space-*`), tipografía fluida balanceada con clamp, contraste WCAG AAA/AA verificado y micro-estados pulidos sin tosquedad (`.imp-btn`, `.imp-input`, tooltips).
+- **Listas, Métricas y Stacks (skill-ul):** Usar listas estilizadas (`.skill-ul`), barras de progreso con animación shimmer continua (`.skill-bar-fill`), badges interactivos con brillo/destello (`.skill-badge-shine`) y puntos de estado dinámicos (verde, azul, ámbar, rojo).
+- **Prohibido el diseño tosco o genérico:** No usar colores planos genéricos, layouts aburridos ni componentes sin micro-animaciones.

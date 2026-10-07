@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lupa OCR Transparente</title>
+  <link rel="stylesheet" href="../Fronted embellecedor/ui-pro-max/styles/ui-pro-max.css">
+  <link rel="stylesheet" href="../Fronted embellecedor/impecable/styles/impeccable.css">
+  <link rel="stylesheet" href="../Fronted embellecedor/impecable/styles/buttons.css">
+  <link rel="stylesheet" href="../Fronted embellecedor/skill-ul/styles/skill-ul.css">
+  <style>
+    body {
+      width: 340px;
+      margin: 0;
+      padding: 16px;
+      background: var(--pro-bg-deep, #050508);
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 16px;
+    }
+    .header img {
+      width: 28px;
+      height: 28px;
+    }
+    .header h1 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      margin: 0;
+      color: #fff;
+    }
+    .card {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      backdrop-filter: blur(10px);
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      font-size: 0.85rem;
+    }
+    .btn-action {
+      width: 100%;
+      margin-top: 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="../assets/icon.svg" alt="Lupa OCR">
+    <h1>Lupa OCR Transparente</h1>
+  </div>
+
+  <div class="pro-beam-card">
+    <div class="pro-beam-content card">
+      <div class="status-row">
+        <span>Estado de la lente</span>
+        <span class="pro-badge glow-cyan"><span class="pro-pulse-dot"></span> Inactiva</span>
+      </div>
+      <button id="toggleBtn" class="imp-btn imp-btn-primary btn-action">Activar Lupa en Pestaña Actual</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="status-row">
+      <span>Traducción</span>
+      <span class="skill-badge-shine">Auto → ES</span>
+    </div>
+    <button id="optionsBtn" class="imp-btn btn-action">Configuración</button>
+  </div>
+
+  <script type="module" src="../js/popup.js"></script>
+</body>
+</html>

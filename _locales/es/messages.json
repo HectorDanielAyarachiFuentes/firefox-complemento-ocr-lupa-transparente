@@ -1,0 +1,22 @@
+{
+  "appName": {
+    "message": "Lupa OCR Transparente",
+    "description": "Nombre de la extensión"
+  },
+  "appDesc": {
+    "message": "Lente flotante transparente para Firefox que realiza OCR y traducción de texto en tiempo real con clics a través.",
+    "description": "Descripción general de la extensión"
+  },
+  "cmdToggleLens": {
+    "message": "Mostrar u ocultar la lupa flotante",
+    "description": "Atajo para activar o desactivar la lente OCR"
+  },
+  "cmdTranslateNow": {
+    "message": "Forzar lectura OCR y traducir ahora",
+    "description": "Atajo para traducir de inmediato"
+  },
+  "cmdTogglePause": {
+    "message": "Pausar o reanudar el escaneo automático",
+    "description": "Atajo para pausar la lupa"
+  }
+}

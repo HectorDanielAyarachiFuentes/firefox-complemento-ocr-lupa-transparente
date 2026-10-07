@@ -1,0 +1,22 @@
+{
+  "appName": {
+    "message": "Transparent OCR Lens",
+    "description": "Extension name"
+  },
+  "appDesc": {
+    "message": "Transparent floating magnifying lens for Firefox that performs real-time OCR and text translation with click-through support.",
+    "description": "General description"
+  },
+  "cmdToggleLens": {
+    "message": "Toggle floating OCR lens",
+    "description": "Shortcut to toggle the lens"
+  },
+  "cmdTranslateNow": {
+    "message": "Force OCR capture and translate now",
+    "description": "Shortcut to trigger instant translation"
+  },
+  "cmdTogglePause": {
+    "message": "Pause or resume automatic scanning",
+    "description": "Shortcut to pause the lens"
+  }
+}

@@ -1,0 +1,108 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_appName__",
+  "version": "1.0.0",
+  "description": "__MSG_appDesc__",
+  "default_locale": "es",
+  "icons": {
+    "16": "assets/icon.svg",
+    "48": "assets/icon.svg",
+    "128": "assets/icon.svg"
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "lupa-ocr-transparente@ayarachi.com",
+      "strict_min_version": "142.0",
+      "data_collection_permissions": {
+        "required": [
+          "none"
+        ]
+      }
+    }
+  },
+  "action": {
+    "default_icon": {
+      "16": "assets/icon.svg",
+      "48": "assets/icon.svg",
+      "128": "assets/icon.svg"
+    },
+    "default_popup": "pages/popup.html?mode=popup",
+    "default_title": "__MSG_appName__"
+  },
+  "sidebar_action": {
+    "default_icon": {
+      "16": "assets/icon.svg",
+      "48": "assets/icon.svg",
+      "128": "assets/icon.svg"
+    },
+    "default_title": "__MSG_appName__",
+    "default_panel": "pages/popup.html?mode=sidebar",
+    "open_at_install": false
+  },
+  "commands": {
+    "toggle-lens": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+L"
+      },
+      "description": "__MSG_cmdToggleLens__"
+    },
+    "translate-now": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+R"
+      },
+      "description": "__MSG_cmdTranslateNow__"
+    },
+    "toggle-pause": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+P"
+      },
+      "description": "__MSG_cmdTogglePause__"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "js/content-script.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
+  "background": {
+    "scripts": [
+      "js/background.js"
+    ],
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "pages/options.html",
+    "open_in_tab": true
+  },
+  "permissions": [
+    "storage",
+    "tabs",
+    "activeTab",
+    "contextMenus",
+    "notifications",
+    "scripting"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/icon.svg",
+        "assets/icon.png",
+        "Fronted embellecedor/ui-pro-max/styles/ui-pro-max.css",
+        "Fronted embellecedor/impecable/styles/impeccable.css",
+        "Fronted embellecedor/skill-ul/styles/skill-ul.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ]
+}

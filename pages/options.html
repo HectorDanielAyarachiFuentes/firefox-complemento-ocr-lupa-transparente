@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ajustes — Lupa OCR Transparente</title>
+  <link rel="stylesheet" href="../Fronted embellecedor/ui-pro-max/styles/ui-pro-max.css">
+  <link rel="stylesheet" href="../Fronted embellecedor/impecable/styles/impeccable.css">
+  <link rel="stylesheet" href="../Fronted embellecedor/impecable/styles/buttons.css">
+  <link rel="stylesheet" href="../Fronted embellecedor/skill-ul/styles/skill-ul.css">
+  <style>
+    body {
+      max-width: 680px;
+      margin: 40px auto;
+      padding: 0 20px;
+      background: var(--pro-bg-deep, #050508);
+      color: #f1f5f9;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .header img {
+      width: 36px;
+      height: 36px;
+    }
+    .header h1 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin: 0;
+      color: #fff;
+    }
+    .panel {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 14px;
+      padding: 24px;
+      margin-bottom: 20px;
+      backdrop-filter: blur(12px);
+    }
+    .setting-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    }
+    .setting-row:last-child {
+      border-bottom: none;
+    }
+    .label-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .label-desc {
+      font-size: 0.8rem;
+      color: var(--imp-text-secondary, #94a3b8);
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="../assets/icon.svg" alt="Lupa OCR">
+    <h1>Ajustes de Lupa OCR Transparente</h1>
+  </div>
+
+  <div class="panel">
+    <div class="setting-row">
+      <div>
+        <div class="label-title">Idioma destino de traducción</div>
+        <div class="label-desc">Idioma al que se traducirá el texto detectado</div>
+      </div>
+      <div>
+        <select id="targetLang" class="imp-input" style="padding: 6px 12px; border-radius: 6px; background:#111; color:#fff;">
+          <option value="es" selected>Español</option>
+          <option value="en">Inglés</option>
+          <option value="fr">Francés</option>
+          <option value="de">Alemán</option>
+          <option value="pt">Portugués</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="label-title">Transparencia por defecto</div>
+        <div class="label-desc">Nivel de visibilidad del fondo de la lente (5% - 100%)</div>
+      </div>
+      <div>
+        <input type="range" id="defaultOpacity" min="5" max="100" value="15">
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <div>
+        <div class="label-title">Click-through (Clics a través)</div>
+        <div class="label-desc">Permite que los clics y el scroll interactúen con la página bajo la lente</div>
+      </div>
+      <div>
+        <input type="checkbox" id="clickThrough" checked>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="../js/options.js"></script>
+</body>
+</html>
