@@ -64,8 +64,9 @@
     <div class="pro-beam-content card">
       <div class="status-row">
         <span>Estado de la lente</span>
-        <span class="pro-badge glow-cyan"><span class="pro-pulse-dot"></span> Inactiva</span>
+        <span id="statusBadge" class="pro-badge glow-cyan"><span id="statusDot" class="pro-pulse-dot"></span> <span id="statusLabel">INACTIVA</span></span>
       </div>
+      <div id="noticeMsg" style="font-size:0.75rem; color:#f87171; margin-bottom:8px;" hidden></div>
       <button id="toggleBtn" class="imp-btn imp-btn-primary btn-action">Activar Lupa en Pestaña Actual</button>
     </div>
   </div>

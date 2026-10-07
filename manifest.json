@@ -96,6 +96,7 @@
       "resources": [
         "assets/icon.svg",
         "assets/icon.png",
+        "src/renderer/styles.css",
         "Fronted embellecedor/ui-pro-max/styles/ui-pro-max.css",
         "Fronted embellecedor/impecable/styles/impeccable.css",
         "Fronted embellecedor/skill-ul/styles/skill-ul.css"
